@@ -198,28 +198,32 @@ onMounted(() => {
 </script>
 
 <template>
+  <!-- Background blobs: langsung di body, fixed, di belakang semua konten -->
+  <Teleport to="body">
+    <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+      <div
+        class="absolute -top-40 -left-40 h-[500px] w-[500px] transform-gpu rounded-full bg-indigo-300/30 blur-[120px]"
+      ></div>
+
+      <div
+        class="absolute -right-40 top-1/4 h-[450px] w-[450px] transform-gpu rounded-full bg-purple-300/25 blur-[120px]"
+      ></div>
+
+      <div
+        class="absolute -bottom-32 left-1/3 h-[450px] w-[450px] transform-gpu rounded-full bg-blue-200/30 blur-[120px]"
+      ></div>
+
+      <div
+        class="absolute bottom-10 right-10 h-80 w-80 transform-gpu rounded-full bg-sky-200/20 blur-[100px]"
+      ></div>
+    </div>
+  </Teleport>
+
   <DashboardLayout
     title="Dashboard"
     subtitle="Ringkasan keuangan kamu"
   >
-    <div class="relative min-h-full overflow-hidden">
-      <!-- Background blobs yang diperhalus (lebih lembut & elegan) -->
-      <div
-        class="pointer-events-none absolute -top-40 -left-40 h-[500px] w-[500px] rounded-full bg-indigo-300/30 blur-[120px] transition-all duration-700"
-      ></div>
-
-      <div
-        class="pointer-events-none absolute -right-40 top-1/4 h-[450px] w-[450px] rounded-full bg-purple-300/25 blur-[120px] transition-all duration-700"
-      ></div>
-
-      <div
-        class="pointer-events-none absolute -bottom-32 left-1/3 h-[450px] w-[450px] rounded-full bg-blue-200/30 blur-[120px] transition-all duration-700"
-      ></div>
-
-      <div
-        class="pointer-events-none absolute bottom-10 right-10 h-80 w-80 rounded-full bg-sky-200/20 blur-[100px] transition-all duration-700"
-      ></div>
-
+    <div class="relative min-h-full">
       <div class="relative">
         <!-- Header (judul & subjudul sudah ada di AppHeader) -->
         <div

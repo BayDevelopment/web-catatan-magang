@@ -118,53 +118,38 @@ onMounted(() => {
 </script>
 
 <template>
+  <!-- Background blobs: langsung di body, fixed, di belakang semua konten -->
+  <Teleport to="body">
+    <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+      <div
+        class="absolute -top-40 -left-40 h-[500px] w-[500px] transform-gpu rounded-full bg-red-300/30 blur-[120px]"
+      ></div>
+
+      <div
+        class="absolute -right-40 top-1/4 h-[450px] w-[450px] transform-gpu rounded-full bg-indigo-300/25 blur-[120px]"
+      ></div>
+
+      <div
+        class="absolute -bottom-32 left-1/3 h-[450px] w-[450px] transform-gpu rounded-full bg-violet-200/30 blur-[120px]"
+      ></div>
+
+      <div
+        class="absolute bottom-10 right-10 h-80 w-80 transform-gpu rounded-full bg-rose-200/20 blur-[100px]"
+      ></div>
+    </div>
+  </Teleport>
+
   <DashboardLayout
     title="Uang Keluar"
     subtitle="Kelola semua pengeluaran kamu"
   >
     <!-- Main wrapper -->
-    <div class="relative overflow-hidden">
-
-      <!-- Background Blobs yang Diperhalus -->
-      <div
-        class="pointer-events-none absolute -top-40 -left-40 h-[500px] w-[500px] rounded-full bg-red-300/30 blur-[120px] transition-all duration-700"
-      ></div>
-
-      <div
-        class="pointer-events-none absolute -right-40 top-1/4 h-[450px] w-[450px] rounded-full bg-indigo-300/25 blur-[120px] transition-all duration-700"
-      ></div>
-
-      <div
-        class="pointer-events-none absolute -bottom-32 left-1/3 h-[450px] w-[450px] rounded-full bg-violet-200/30 blur-[120px] transition-all duration-700"
-      ></div>
-
-      <div
-        class="pointer-events-none absolute bottom-10 right-10 h-80 w-80 rounded-full bg-rose-200/20 blur-[100px] transition-all duration-700"
-      ></div>
-
+    <div class="relative">
       <!-- Content -->
       <div class="relative z-10">
 
-        <!-- Header -->
-        <div
-          class="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center"
-        >
-          <div>
-            <p class="text-sm text-slate-500">
-              Keuangan
-            </p>
-
-            <h1
-              class="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl"
-            >
-              Uang Keluar
-            </h1>
-
-            <p class="mt-1 text-sm text-slate-500">
-              Kelola seluruh pengeluaran kamu.
-            </p>
-          </div>
-
+        <!-- Actions (judul & subjudul sudah ada di AppHeader) -->
+        <div class="mb-6 flex justify-end">
           <div class="flex items-center gap-3">
             <button
               type="button"

@@ -9,7 +9,7 @@ defineProps<{
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50">
+  <div class="min-h-screen">
     <AppSidebar />
 
     <div class="lg:pl-64">

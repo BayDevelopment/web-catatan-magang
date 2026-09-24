@@ -79,35 +79,51 @@ onMounted(() => {
 </script>
 
 <template>
+  <!-- =========================================================
+       BACKGROUND BLOBS
+       Langsung di BODY agar tidak terikat oleh container content
+  ========================================================== -->
+  <Teleport to="body">
+    <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+      <!-- Blob kiri atas -->
+      <div
+        class="absolute -left-40 -top-40 h-[500px] w-[500px] transform-gpu rounded-full bg-indigo-300/30 blur-[120px]"
+      ></div>
+
+      <!-- Blob kanan -->
+      <div
+        class="absolute -right-40 top-1/4 h-[450px] w-[450px] transform-gpu rounded-full bg-purple-300/25 blur-[120px]"
+      ></div>
+
+      <!-- Blob bawah tengah -->
+      <div
+        class="absolute -bottom-32 left-1/3 h-[450px] w-[450px] transform-gpu rounded-full bg-blue-200/30 blur-[120px]"
+      ></div>
+
+      <!-- Blob kanan bawah -->
+      <div
+        class="absolute bottom-10 right-10 h-80 w-80 transform-gpu rounded-full bg-sky-200/20 blur-[100px]"
+      ></div>
+    </div>
+  </Teleport>
+
   <DashboardLayout
     title="Laporan"
     subtitle="Lihat ringkasan keuangan kamu"
   >
     <!-- Main content -->
-    <div class="relative overflow-hidden">
-      <!-- Background blobs yang diperhalus (lebih lembut & elegan) -->
-      <div
-        class="pointer-events-none absolute -top-40 -left-40 h-[500px] w-[500px] rounded-full bg-indigo-300/30 blur-[120px] transition-all duration-700"
-      ></div>
-
-      <div
-        class="pointer-events-none absolute -right-40 top-1/4 h-[450px] w-[450px] rounded-full bg-purple-300/25 blur-[120px] transition-all duration-700"
-      ></div>
-
-      <div
-        class="pointer-events-none absolute -bottom-32 left-1/3 h-[450px] w-[450px] rounded-full bg-blue-200/30 blur-[120px] transition-all duration-700"
-      ></div>
-
-      <div
-        class="pointer-events-none absolute bottom-10 right-10 h-80 w-80 rounded-full bg-sky-200/20 blur-[100px] transition-all duration-700"
-      ></div>
-
+    <div class="relative">
       <!-- Content -->
       <div class="relative z-10">
+
         <!-- Header & Refresh Button -->
-        <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div
+          class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"
+        >
           <div>
-            <h1 class="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+            <h1
+              class="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl"
+            >
               Laporan Keuangan
             </h1>
 
@@ -126,6 +142,7 @@ onMounted(() => {
               :size="16"
               :class="loading ? 'animate-spin' : ''"
             />
+
             Refresh
           </button>
         </div>
@@ -159,6 +176,7 @@ onMounted(() => {
 
         <!-- Summary Cards -->
         <div class="grid gap-4 sm:grid-cols-3">
+
           <!-- Income -->
           <div
             class="rounded-2xl border border-emerald-100/80 bg-emerald-50/90 p-5 shadow-sm backdrop-blur transition duration-200 hover:-translate-y-1 hover:shadow-md"
@@ -225,18 +243,10 @@ onMounted(() => {
 
         <!-- Table -->
         <div
-          class="relative mt-6 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm backdrop-blur-xl transition duration-200 hover:shadow-md"
+          class="mt-6 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm backdrop-blur-xl transition duration-200 hover:shadow-md"
         >
-          <!-- Table blobs -->
-          <div
-            class="pointer-events-none absolute -right-20 -top-20 h-48 w-48 rounded-full bg-indigo-100/50 blur-3xl"
-          ></div>
+          <div>
 
-          <div
-            class="pointer-events-none absolute -bottom-20 -left-20 h-48 w-48 rounded-full bg-violet-100/40 blur-3xl"
-          ></div>
-
-          <div class="relative">
             <!-- Table Header -->
             <div class="border-b border-slate-200/80 p-6">
               <h2 class="font-semibold text-slate-900">
@@ -251,6 +261,7 @@ onMounted(() => {
             <!-- Table -->
             <div class="overflow-x-auto">
               <table class="w-full min-w-[700px]">
+
                 <thead class="bg-slate-50/80">
                   <tr>
                     <th
@@ -286,18 +297,51 @@ onMounted(() => {
                 </thead>
 
                 <!-- Skeleton Loading -->
-                <tbody v-if="loading" class="divide-y divide-slate-100 animate-pulse">
-                  <tr v-for="i in 3" :key="'skeleton-report-' + i">
-                    <td class="px-6 py-4"><div class="h-4 w-24 rounded bg-slate-200"></div></td>
-                    <td class="px-6 py-4"><div class="h-4 w-40 rounded bg-slate-200"></div></td>
-                    <td class="px-6 py-4"><div class="h-4 w-28 rounded bg-slate-200"></div></td>
-                    <td class="px-6 py-4"><div class="h-6 w-16 rounded-full bg-slate-200"></div></td>
-                    <td class="px-6 py-4 text-right"><div class="ml-auto h-4 w-24 rounded bg-slate-200"></div></td>
+                <tbody
+                  v-if="loading"
+                  class="divide-y divide-slate-100 animate-pulse"
+                >
+                  <tr
+                    v-for="i in 3"
+                    :key="'skeleton-report-' + i"
+                  >
+                    <td class="px-6 py-4">
+                      <div
+                        class="h-4 w-24 rounded bg-slate-200"
+                      ></div>
+                    </td>
+
+                    <td class="px-6 py-4">
+                      <div
+                        class="h-4 w-40 rounded bg-slate-200"
+                      ></div>
+                    </td>
+
+                    <td class="px-6 py-4">
+                      <div
+                        class="h-4 w-28 rounded bg-slate-200"
+                      ></div>
+                    </td>
+
+                    <td class="px-6 py-4">
+                      <div
+                        class="h-6 w-16 rounded-full bg-slate-200"
+                      ></div>
+                    </td>
+
+                    <td class="px-6 py-4 text-right">
+                      <div
+                        class="ml-auto h-4 w-24 rounded bg-slate-200"
+                      ></div>
+                    </td>
                   </tr>
                 </tbody>
 
                 <!-- Table Content -->
-                <tbody v-else class="divide-y divide-slate-100">
+                <tbody
+                  v-else
+                  class="divide-y divide-slate-100"
+                >
                   <tr
                     v-for="transaction in filteredTransactions"
                     :key="transaction.id"
@@ -351,7 +395,12 @@ onMounted(() => {
                   </tr>
 
                   <!-- Empty state -->
-                  <tr v-if="!loading && filteredTransactions.length === 0">
+                  <tr
+                    v-if="
+                      !loading &&
+                      filteredTransactions.length === 0
+                    "
+                  >
                     <td
                       colspan="5"
                       class="px-6 py-14 text-center"
@@ -362,7 +411,9 @@ onMounted(() => {
                         <FileText :size="22" />
                       </div>
 
-                      <p class="mt-4 text-sm font-medium text-slate-600">
+                      <p
+                        class="mt-4 text-sm font-medium text-slate-600"
+                      >
                         Tidak ada transaksi
                       </p>
 
@@ -372,10 +423,12 @@ onMounted(() => {
                     </td>
                   </tr>
                 </tbody>
+
               </table>
             </div>
           </div>
         </div>
+
       </div>
     </div>
   </DashboardLayout>
