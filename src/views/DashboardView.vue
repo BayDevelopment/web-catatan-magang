@@ -210,21 +210,21 @@ onMounted(() => {
     subtitle="Ringkasan keuangan kamu"
   >
     <div class="relative min-h-full overflow-hidden">
-      <!-- Background blobs -->
+      <!-- Background blobs yang diperhalus (lebih lembut & elegan) -->
       <div
-        class="pointer-events-none absolute -left-24 -top-24 h-72 w-72 rounded-full bg-indigo-200/40 blur-3xl"
+        class="pointer-events-none absolute -top-40 -left-40 h-[500px] w-[500px] rounded-full bg-indigo-300/30 blur-[120px] transition-all duration-700"
       ></div>
 
       <div
-        class="pointer-events-none absolute -right-24 top-32 h-80 w-80 rounded-full bg-violet-200/40 blur-3xl"
+        class="pointer-events-none absolute -right-40 top-1/4 h-[450px] w-[450px] rounded-full bg-purple-300/25 blur-[120px] transition-all duration-700"
       ></div>
 
       <div
-        class="pointer-events-none absolute left-1/3 top-[40%] h-64 w-64 rounded-full bg-blue-200/30 blur-3xl"
+        class="pointer-events-none absolute -bottom-32 left-1/3 h-[450px] w-[450px] rounded-full bg-blue-200/30 blur-[120px] transition-all duration-700"
       ></div>
 
       <div
-        class="pointer-events-none absolute -bottom-24 right-1/4 h-72 w-72 rounded-full bg-indigo-100/50 blur-3xl"
+        class="pointer-events-none absolute bottom-10 right-10 h-80 w-80 rounded-full bg-sky-200/20 blur-[100px] transition-all duration-700"
       ></div>
 
       <div class="relative">

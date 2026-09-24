@@ -157,7 +157,7 @@ onUnmounted(() => {
       class="absolute bottom-0 left-0 right-0 border-t border-slate-200 p-4"
     >
       <p class="text-center text-xs text-slate-400">
-        KeuanganKu © 2026
+        Developed by Bayu Albar Ladici
       </p>
     </div>
   </aside>

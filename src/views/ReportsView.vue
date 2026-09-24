@@ -3,56 +3,21 @@ import {
   FileText,
   ArrowDownToLine,
   ArrowUpFromLine,
+  RefreshCw,
 } from 'lucide-vue-next'
 
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import DashboardLayout from '../layouts/DashboardLayout.vue'
+import { getTransactions } from '../services/transaction.service'
+import type { Transaction } from '../types/transaction'
 
-interface Transaction {
-  id: number
-  description: string
-  category: string
-  type: 'income' | 'expense'
-  amount: number
-  date: string
-}
+const transactions = ref<Transaction[]>([])
+const loading = ref(true)
+const errorMessage = ref('')
 
-const month = ref('2026-09')
-
-const transactions = ref<Transaction[]>([
-  {
-    id: 1,
-    description: 'Gaji Bulanan',
-    category: 'Gaji',
-    type: 'income',
-    amount: 5000000,
-    date: '2026-09-01',
-  },
-  {
-    id: 2,
-    description: 'Beli Gorengan',
-    category: 'Makanan',
-    type: 'expense',
-    amount: 24000,
-    date: '2026-09-02',
-  },
-  {
-    id: 3,
-    description: 'Bensin',
-    category: 'Transportasi',
-    type: 'expense',
-    amount: 50000,
-    date: '2026-09-03',
-  },
-  {
-    id: 4,
-    description: 'Freelance',
-    category: 'Freelance',
-    type: 'income',
-    amount: 500000,
-    date: '2026-09-10',
-  },
-])
+const month = ref(
+  new Date().toISOString().slice(0, 7),
+)
 
 const formatRupiah = (value: number) => {
   return new Intl.NumberFormat('id-ID', {
@@ -62,26 +27,54 @@ const formatRupiah = (value: number) => {
   }).format(value)
 }
 
+const formatDate = (date: string) => {
+  return new Intl.DateTimeFormat('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(`${date}T00:00:00`))
+}
+
+const loadTransactions = async () => {
+  loading.value = true
+  errorMessage.value = ''
+
+  try {
+    transactions.value = await getTransactions()
+  } catch (error) {
+    errorMessage.value =
+      error instanceof Error
+        ? error.message
+        : 'Gagal mengambil data laporan transaksi.'
+  } finally {
+    loading.value = false
+  }
+}
+
 const filteredTransactions = computed(() => {
   return transactions.value.filter((transaction) =>
-    transaction.date.startsWith(month.value)
+    transaction.transaction_date.startsWith(month.value)
   )
 })
 
 const totalIncome = computed(() => {
   return filteredTransactions.value
     .filter((item) => item.type === 'income')
-    .reduce((total, item) => total + item.amount, 0)
+    .reduce((total, item) => total + Number(item.amount), 0)
 })
 
 const totalExpense = computed(() => {
   return filteredTransactions.value
     .filter((item) => item.type === 'expense')
-    .reduce((total, item) => total + item.amount, 0)
+    .reduce((total, item) => total + Number(item.amount), 0)
 })
 
 const balance = computed(() => {
   return totalIncome.value - totalExpense.value
+})
+
+onMounted(() => {
+  void loadTransactions()
 })
 </script>
 
@@ -92,34 +85,57 @@ const balance = computed(() => {
   >
     <!-- Main content -->
     <div class="relative overflow-hidden">
-      <!-- Background blobs -->
+      <!-- Background blobs yang diperhalus (lebih lembut & elegan) -->
       <div
-        class="pointer-events-none absolute -left-24 -top-24 h-72 w-72 rounded-full bg-indigo-200/30 blur-3xl"
+        class="pointer-events-none absolute -top-40 -left-40 h-[500px] w-[500px] rounded-full bg-indigo-300/30 blur-[120px] transition-all duration-700"
       ></div>
 
       <div
-        class="pointer-events-none absolute -right-24 top-24 h-80 w-80 rounded-full bg-violet-200/30 blur-3xl"
+        class="pointer-events-none absolute -right-40 top-1/4 h-[450px] w-[450px] rounded-full bg-purple-300/25 blur-[120px] transition-all duration-700"
       ></div>
 
       <div
-        class="pointer-events-none absolute left-1/3 top-[40%] h-64 w-64 rounded-full bg-blue-200/25 blur-3xl"
+        class="pointer-events-none absolute -bottom-32 left-1/3 h-[450px] w-[450px] rounded-full bg-blue-200/30 blur-[120px] transition-all duration-700"
       ></div>
 
       <div
-        class="pointer-events-none absolute -bottom-24 right-1/4 h-72 w-72 rounded-full bg-indigo-100/40 blur-3xl"
+        class="pointer-events-none absolute bottom-10 right-10 h-80 w-80 rounded-full bg-sky-200/20 blur-[100px] transition-all duration-700"
       ></div>
 
       <!-- Content -->
       <div class="relative z-10">
-        <!-- Header -->
-        <div class="mb-6">
-          <h1 class="text-2xl font-bold tracking-tight text-slate-900">
-            Laporan Keuangan
-          </h1>
+        <!-- Header & Refresh Button -->
+        <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+              Laporan Keuangan
+            </h1>
 
-          <p class="mt-1 text-sm text-slate-500">
-            Lihat ringkasan pemasukan dan pengeluaran.
-          </p>
+            <p class="mt-1 text-sm text-slate-500">
+              Lihat ringkasan pemasukan dan pengeluaran.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            :disabled="loading"
+            class="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-slate-200 bg-white/90 px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm backdrop-blur transition hover:bg-white hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60 sm:self-auto"
+            @click="loadTransactions"
+          >
+            <RefreshCw
+              :size="16"
+              :class="loading ? 'animate-spin' : ''"
+            />
+            Refresh
+          </button>
+        </div>
+
+        <!-- Error Alert -->
+        <div
+          v-if="errorMessage"
+          class="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+        >
+          {{ errorMessage }}
         </div>
 
         <!-- Filter -->
@@ -141,7 +157,7 @@ const balance = computed(() => {
           </div>
         </div>
 
-        <!-- Summary -->
+        <!-- Summary Cards -->
         <div class="grid gap-4 sm:grid-cols-3">
           <!-- Income -->
           <div
@@ -269,14 +285,26 @@ const balance = computed(() => {
                   </tr>
                 </thead>
 
-                <tbody class="divide-y divide-slate-100">
+                <!-- Skeleton Loading -->
+                <tbody v-if="loading" class="divide-y divide-slate-100 animate-pulse">
+                  <tr v-for="i in 3" :key="'skeleton-report-' + i">
+                    <td class="px-6 py-4"><div class="h-4 w-24 rounded bg-slate-200"></div></td>
+                    <td class="px-6 py-4"><div class="h-4 w-40 rounded bg-slate-200"></div></td>
+                    <td class="px-6 py-4"><div class="h-4 w-28 rounded bg-slate-200"></div></td>
+                    <td class="px-6 py-4"><div class="h-6 w-16 rounded-full bg-slate-200"></div></td>
+                    <td class="px-6 py-4 text-right"><div class="ml-auto h-4 w-24 rounded bg-slate-200"></div></td>
+                  </tr>
+                </tbody>
+
+                <!-- Table Content -->
+                <tbody v-else class="divide-y divide-slate-100">
                   <tr
                     v-for="transaction in filteredTransactions"
                     :key="transaction.id"
                     class="transition duration-150 hover:bg-slate-50/80"
                   >
                     <td class="px-6 py-4 text-sm text-slate-600">
-                      {{ transaction.date }}
+                      {{ formatDate(transaction.transaction_date) }}
                     </td>
 
                     <td class="px-6 py-4 font-medium text-slate-900">
@@ -318,12 +346,12 @@ const balance = computed(() => {
                           : '-'
                       }}
 
-                      {{ formatRupiah(transaction.amount) }}
+                      {{ formatRupiah(Number(transaction.amount)) }}
                     </td>
                   </tr>
 
                   <!-- Empty state -->
-                  <tr v-if="filteredTransactions.length === 0">
+                  <tr v-if="!loading && filteredTransactions.length === 0">
                     <td
                       colspan="5"
                       class="px-6 py-14 text-center"

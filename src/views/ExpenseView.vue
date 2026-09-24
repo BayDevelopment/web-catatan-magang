@@ -2,22 +2,20 @@
 import {
   Plus,
   Search,
-  Pencil,
   Trash2,
   ArrowUpFromLine,
   X,
+  RefreshCw,
 } from 'lucide-vue-next'
 
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import DashboardLayout from '../layouts/DashboardLayout.vue'
+import { getTransactions, createTransaction, deleteTransaction } from '../services/transaction.service'
+import type { Transaction } from '../types/transaction'
 
-interface Expense {
-  id: number
-  description: string
-  category: string
-  amount: number
-  date: string
-}
+const transactions = ref<Transaction[]>([])
+const loading = ref(true)
+const errorMessage = ref('')
 
 const showForm = ref(false)
 const search = ref('')
@@ -25,31 +23,8 @@ const search = ref('')
 const description = ref('')
 const category = ref('Makanan')
 const amount = ref<number | null>(null)
-const date = ref('2026-09-24')
-
-const expenses = ref<Expense[]>([
-  {
-    id: 1,
-    description: 'Beli Gorengan',
-    category: 'Makanan',
-    amount: 24000,
-    date: '2026-09-02',
-  },
-  {
-    id: 2,
-    description: 'Bensin',
-    category: 'Transportasi',
-    amount: 50000,
-    date: '2026-09-03',
-  },
-  {
-    id: 3,
-    description: 'Makan Siang',
-    category: 'Makanan',
-    amount: 25000,
-    date: '2026-09-04',
-  },
-])
+const date = ref(new Date().toISOString().slice(0, 10))
+const submitting = ref(false)
 
 const formatRupiah = (value: number) => {
   return new Intl.NumberFormat('id-ID', {
@@ -59,46 +34,87 @@ const formatRupiah = (value: number) => {
   }).format(value)
 }
 
+const formatDate = (dateString: string) => {
+  return new Intl.DateTimeFormat('id-ID', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(`${dateString}T00:00:00`))
+}
+
+const loadExpenses = async () => {
+  loading.value = true
+  errorMessage.value = ''
+
+  try {
+    const data = await getTransactions()
+    transactions.value = data.filter((t) => t.type === 'expense')
+  } catch (error) {
+    errorMessage.value =
+      error instanceof Error ? error.message : 'Gagal mengambil data pengeluaran.'
+  } finally {
+    loading.value = false
+  }
+}
+
 const filteredExpenses = computed(() => {
-  return expenses.value.filter((item) =>
-    item.description
-      .toLowerCase()
-      .includes(search.value.toLowerCase())
+  return transactions.value.filter((item) =>
+    item.description.toLowerCase().includes(search.value.toLowerCase())
   )
 })
 
 const totalExpense = computed(() => {
-  return expenses.value.reduce(
-    (total, item) => total + item.amount,
+  return transactions.value.reduce(
+    (total, item) => total + Number(item.amount),
     0
   )
 })
 
-const saveExpense = () => {
-  if (!description.value || !amount.value) {
+const saveExpense = async () => {
+  if (!description.value || !amount.value || amount.value <= 0) {
+    alert('Mohon isi keterangan dan nominal dengan benar.')
     return
   }
 
-  expenses.value.unshift({
-    id: Date.now(),
-    description: description.value,
-    category: category.value,
-    amount: amount.value,
-    date: date.value,
-  })
+  submitting.value = true
+  try {
+    // DISESUAIKAN: Menerima (type, formData) sesuai signature service Anda
+    await createTransaction('expense', {
+      description: description.value,
+      category: category.value,
+      amount: amount.value,
+      transaction_date: date.value,
+    })
 
-  description.value = ''
-  amount.value = null
-  category.value = 'Makanan'
+    // Reset form & tutup modal
+    description.value = ''
+    amount.value = null
+    category.value = 'Makanan'
+    showForm.value = false
 
-  showForm.value = false
+    // Muat ulang data dari Supabase
+    await loadExpenses()
+  } catch (error: any) {
+    alert(error.message || 'Gagal menyimpan pengeluaran.')
+  } finally {
+    submitting.value = false
+  }
 }
 
-const deleteExpense = (id: number) => {
-  expenses.value = expenses.value.filter(
-    (item) => item.id !== id
-  )
+const handleDelete = async (id: number) => {
+  if (!confirm('Yakin ingin menghapus pengeluaran ini?')) return
+
+  try {
+    await deleteTransaction(id)
+    await loadExpenses()
+  } catch (error: any) {
+    alert(error.message || 'Gagal menghapus pengeluaran.')
+  }
 }
+
+onMounted(() => {
+  void loadExpenses()
+})
 </script>
 
 <template>
@@ -109,25 +125,25 @@ const deleteExpense = (id: number) => {
     <!-- Main wrapper -->
     <div class="relative overflow-hidden">
 
-      <!-- Blobs -->
+      <!-- Background Blobs yang Diperhalus -->
       <div
-        class="pointer-events-none absolute -left-24 -top-24 h-72 w-72 rounded-full bg-red-200/30 blur-3xl"
+        class="pointer-events-none absolute -top-40 -left-40 h-[500px] w-[500px] rounded-full bg-red-300/30 blur-[120px] transition-all duration-700"
       ></div>
 
       <div
-        class="pointer-events-none absolute -right-24 top-24 h-80 w-80 rounded-full bg-indigo-200/30 blur-3xl"
+        class="pointer-events-none absolute -right-40 top-1/4 h-[450px] w-[450px] rounded-full bg-indigo-300/25 blur-[120px] transition-all duration-700"
       ></div>
 
       <div
-        class="pointer-events-none absolute left-1/3 top-[45%] h-64 w-64 rounded-full bg-violet-200/25 blur-3xl"
+        class="pointer-events-none absolute -bottom-32 left-1/3 h-[450px] w-[450px] rounded-full bg-violet-200/30 blur-[120px] transition-all duration-700"
       ></div>
 
       <div
-        class="pointer-events-none absolute -bottom-24 right-1/4 h-72 w-72 rounded-full bg-red-100/40 blur-3xl"
+        class="pointer-events-none absolute bottom-10 right-10 h-80 w-80 rounded-full bg-rose-200/20 blur-[100px] transition-all duration-700"
       ></div>
 
       <!-- Content -->
-      <div class="relative">
+      <div class="relative z-10">
 
         <!-- Header -->
         <div
@@ -149,14 +165,34 @@ const deleteExpense = (id: number) => {
             </p>
           </div>
 
-          <button
-            type="button"
-            @click="showForm = true"
-            class="flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:bg-red-700 hover:shadow-md"
-          >
-            <Plus :size="18" />
-            Tambah Pengeluaran
-          </button>
+          <div class="flex items-center gap-3">
+            <button
+              type="button"
+              :disabled="loading"
+              class="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white/90 px-4 py-3 text-sm font-medium text-slate-700 shadow-sm backdrop-blur transition hover:bg-white hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
+              @click="loadExpenses"
+            >
+              <RefreshCw :size="16" :class="loading ? 'animate-spin' : ''" />
+              Refresh
+            </button>
+
+            <button
+              type="button"
+              @click="showForm = true"
+              class="flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:bg-red-700 hover:shadow-md"
+            >
+              <Plus :size="18" />
+              Tambah Pengeluaran
+            </button>
+          </div>
+        </div>
+
+        <!-- Error Alert -->
+        <div
+          v-if="errorMessage"
+          class="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+        >
+          {{ errorMessage }}
         </div>
 
         <!-- Summary -->
@@ -242,7 +278,19 @@ const deleteExpense = (id: number) => {
                 </tr>
               </thead>
 
-              <tbody class="divide-y divide-slate-100">
+              <!-- Skeleton Loading -->
+              <tbody v-if="loading" class="divide-y divide-slate-100 animate-pulse">
+                <tr v-for="i in 3" :key="'skeleton-expense-' + i">
+                  <td class="px-6 py-4"><div class="h-4 w-40 rounded bg-slate-200"></div></td>
+                  <td class="px-6 py-4"><div class="h-4 w-28 rounded bg-slate-200"></div></td>
+                  <td class="px-6 py-4"><div class="h-4 w-24 rounded bg-slate-200"></div></td>
+                  <td class="px-6 py-4 text-right"><div class="ml-auto h-4 w-24 rounded bg-slate-200"></div></td>
+                  <td class="px-6 py-4 text-right"><div class="ml-auto h-8 w-8 rounded-lg bg-slate-200"></div></td>
+                </tr>
+              </tbody>
+
+              <!-- Table Content -->
+              <tbody v-else class="divide-y divide-slate-100">
                 <tr
                   v-for="item in filteredExpenses"
                   :key="item.id"
@@ -267,28 +315,20 @@ const deleteExpense = (id: number) => {
                   </td>
 
                   <td class="px-6 py-4 text-sm text-slate-600">
-                    {{ item.date }}
+                    {{ formatDate(item.transaction_date) }}
                   </td>
 
                   <td
                     class="px-6 py-4 text-right font-semibold text-red-600"
                   >
-                    -{{ formatRupiah(item.amount) }}
+                    -{{ formatRupiah(Number(item.amount)) }}
                   </td>
 
                   <td class="px-6 py-4">
                     <div class="flex justify-end gap-2">
                       <button
                         type="button"
-                        class="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-indigo-600"
-                        title="Edit"
-                      >
-                        <Pencil :size="17" />
-                      </button>
-
-                      <button
-                        type="button"
-                        @click="deleteExpense(item.id)"
+                        @click="handleDelete(item.id)"
                         class="rounded-lg p-2 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
                         title="Hapus"
                       >
@@ -299,7 +339,7 @@ const deleteExpense = (id: number) => {
                 </tr>
 
                 <!-- Empty state -->
-                <tr v-if="filteredExpenses.length === 0">
+                <tr v-if="!loading && filteredExpenses.length === 0">
                   <td
                     colspan="5"
                     class="px-6 py-12 text-center"
@@ -317,7 +357,7 @@ const deleteExpense = (id: number) => {
                     </p>
 
                     <p class="mt-1 text-xs text-slate-400">
-                      Coba gunakan kata kunci pencarian lain.
+                      Coba gunakan kata kunci pencarian lain atau tambahkan pengeluaran baru.
                     </p>
                   </td>
                 </tr>
@@ -397,6 +437,7 @@ const deleteExpense = (id: number) => {
                 v-model="description"
                 placeholder="Contoh: Beli Gorengan"
                 class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                required
               />
             </div>
 
@@ -437,6 +478,7 @@ const deleteExpense = (id: number) => {
                 min="1"
                 placeholder="24000"
                 class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                required
               />
             </div>
 
@@ -452,15 +494,21 @@ const deleteExpense = (id: number) => {
                 v-model="date"
                 type="date"
                 class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                required
               />
             </div>
 
             <!-- Submit -->
             <button
               type="submit"
-              class="w-full rounded-xl bg-red-600 py-3 font-semibold text-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:bg-red-700 hover:shadow-md"
+              :disabled="submitting"
+              class="flex w-full items-center justify-center gap-2 rounded-xl bg-red-600 py-3 font-semibold text-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:bg-red-700 hover:shadow-md disabled:opacity-60"
             >
-              Simpan Pengeluaran
+              <span
+                v-if="submitting"
+                class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+              ></span>
+              {{ submitting ? 'Menyimpan...' : 'Simpan Pengeluaran' }}
             </button>
 
           </form>

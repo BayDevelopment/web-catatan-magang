@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import {
   Wallet,
   TrendingUp,
@@ -25,7 +26,16 @@ const iconMap = {
   transaction: Receipt,
 }
 
-const Icon = iconMap[props.type]
+// Peta warna otomatis berdasarkan tipe card
+const colorMap = {
+  balance: 'bg-indigo-50 text-indigo-600',
+  income: 'bg-emerald-50 text-emerald-600',
+  expense: 'bg-red-50 text-red-600',
+  transaction: 'bg-blue-50 text-blue-600',
+}
+
+const Icon = computed(() => iconMap[props.type])
+const colorClass = computed(() => colorMap[props.type] || 'bg-blue-50 text-blue-600')
 </script>
 
 <template>
@@ -51,8 +61,10 @@ const Icon = iconMap[props.type]
         </p>
       </div>
 
+      <!-- Warna icon sekarang dinamis sesuai tipe -->
       <div
-        class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600"
+        class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl"
+        :class="colorClass"
       >
         <component :is="Icon" :size="23" />
       </div>
