@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from 'vue'
-import { LogOut, UserCircle, ChevronDown } from 'lucide-vue-next'
+import { LogOut, UserCircle, ChevronDown, Menu } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
 defineProps<{
@@ -8,6 +9,7 @@ defineProps<{
   subtitle?: string
 }>()
 
+const router = useRouter()
 const authStore = useAuthStore()
 const dropdownOpen = ref(false)
 
@@ -19,10 +21,25 @@ const toggleDropdown = () => {
   dropdownOpen.value = !dropdownOpen.value
 }
 
+const openMobileSidebar = () => {
+  window.dispatchEvent(new CustomEvent('open-mobile-sidebar'))
+}
+
 const closeDropdown = (e: MouseEvent) => {
   const target = e.target as HTMLElement
   if (!target.closest('.profile-dropdown-container')) {
     dropdownOpen.value = false
+  }
+}
+
+const handleLogout = async () => {
+  dropdownOpen.value = false
+  try {
+    await authStore.logout()
+  } catch (error) {
+    console.error('Logout gagal:', error)
+  } finally {
+    await router.replace('/login')
   }
 }
 
@@ -33,20 +50,21 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('click', closeDropdown)
 })
-
-const handleLogout = async () => {
-  dropdownOpen.value = false
-  try {
-    await authStore.logout()
-  } catch (error) {
-    console.error('Logout gagal:', error)
-  }
-}
 </script>
 
 <template>
   <header class="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
     <div class="flex min-h-20 items-center justify-between px-4 sm:px-6 lg:px-8 gap-4">
+
+      <!-- Mobile menu button -->
+      <button
+        type="button"
+        aria-label="Buka menu"
+        class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white/90 text-slate-700 shadow-sm backdrop-blur transition hover:bg-white hover:shadow-md lg:hidden"
+        @click="openMobileSidebar"
+      >
+        <Menu :size="22" />
+      </button>
 
       <!-- Title & Subtitle -->
       <div class="min-w-0 flex-1">

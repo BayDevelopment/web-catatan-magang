@@ -4,7 +4,6 @@ import {
   ArrowUpFromLine,
   Wallet,
   TrendingUp,
-  Menu,
   RefreshCw,
 } from 'lucide-vue-next'
 import { computed, onMounted, ref } from 'vue'
@@ -193,12 +192,6 @@ const expenseHeight = computed(() => {
   )}%`
 })
 
-const openMobileSidebar = () => {
-  window.dispatchEvent(
-    new CustomEvent('open-mobile-sidebar'),
-  )
-}
-
 onMounted(() => {
   void loadTransactions()
 })
@@ -228,49 +221,13 @@ onMounted(() => {
       ></div>
 
       <div class="relative">
-        <!-- Mobile header -->
-        <div
-          class="mb-5 flex items-center justify-between lg:hidden"
-        >
-          <div>
-            <p class="text-xs text-slate-500">
-              KeuanganKu
-            </p>
-
-            <h1
-              class="text-xl font-bold tracking-tight text-slate-900"
-            >
-              Dashboard
-            </h1>
-          </div>
-
-          <button
-            type="button"
-            aria-label="Buka menu"
-            class="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white/90 text-slate-700 shadow-sm backdrop-blur transition hover:bg-white hover:shadow-md"
-            @click="openMobileSidebar"
-          >
-            <Menu :size="22" />
-          </button>
-        </div>
-
-        <!-- Header -->
+        <!-- Header (judul & subjudul sudah ada di AppHeader) -->
         <div
           class="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"
         >
           <div>
             <p class="text-sm capitalize text-slate-500">
               {{ formatMonth(selectedMonth) }}
-            </p>
-
-            <h1
-              class="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl"
-            >
-              Dashboard
-            </h1>
-
-            <p class="mt-1 text-sm text-slate-500">
-              Pantau kondisi keuangan kamu.
             </p>
           </div>
 

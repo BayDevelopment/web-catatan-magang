@@ -1,6 +1,15 @@
-<script setup lang="ts">
-</script>
+import { watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { useAuthStore } from './stores/auth'
 
-<template>
-  <RouterView />
-</template>
+const router = useRouter()
+const authStore = useAuthStore()
+
+watch(
+  () => authStore.isAuthenticated,
+  (isAuth) => {
+    if (!isAuth && authStore.initialized) {
+      void router.replace('/login')
+    }
+  },
+)
