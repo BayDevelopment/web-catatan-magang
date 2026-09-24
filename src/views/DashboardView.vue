@@ -193,11 +193,6 @@ const expenseHeight = computed(() => {
   )}%`
 })
 
-/**
- * Membuka sidebar mobile.
- *
- * AppSidebar akan mendengarkan event ini.
- */
 const openMobileSidebar = () => {
   window.dispatchEvent(
     new CustomEvent('open-mobile-sidebar'),
@@ -302,23 +297,25 @@ onMounted(() => {
           {{ errorMessage }}
         </div>
 
-        <!-- Loading -->
+        <!-- SUMMARY CARDS & SKELETON -->
         <div
-          v-if="loading"
           class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
         >
-          <div
-            v-for="item in 4"
-            :key="item"
-            class="h-36 animate-pulse rounded-2xl bg-white/70"
-          ></div>
-        </div>
+          <!-- Skeleton Card 1-4 (Muncul Saat Loading) -->
+          <template v-if="loading">
+            <div
+              v-for="i in 4"
+              :key="'skeleton-card-' + i"
+              class="rounded-2xl border border-slate-200/80 bg-white/90 p-5 shadow-sm backdrop-blur"
+            >
+              <div class="h-11 w-11 animate-pulse rounded-xl bg-slate-200"></div>
+              <div class="mt-5 h-4 w-20 animate-pulse rounded bg-slate-200"></div>
+              <div class="mt-2 h-7 w-32 animate-pulse rounded bg-slate-200"></div>
+            </div>
+          </template>
 
-        <template v-else>
-          <!-- Summary cards -->
-          <div
-            class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
-          >
+          <!-- Actual Summary Cards -->
+          <template v-else>
             <!-- Saldo -->
             <div
               class="group rounded-2xl border border-slate-200/80 bg-white/90 p-5 shadow-sm backdrop-blur transition duration-300 hover:-translate-y-1 hover:shadow-lg"
@@ -407,308 +404,331 @@ onMounted(() => {
                 {{ formatRupiah(monthlyBalance) }}
               </p>
             </div>
-          </div>
+          </template>
+        </div>
 
-          <!-- Chart + actions -->
+        <!-- Chart + actions -->
+        <div
+          class="mt-6 grid gap-6 xl:grid-cols-3"
+        >
+          <!-- Chart -->
           <div
-            class="mt-6 grid gap-6 xl:grid-cols-3"
-          >
-            <!-- Chart -->
-            <div
-              class="rounded-2xl border border-slate-200/80 bg-white/90 p-5 shadow-sm backdrop-blur transition duration-300 hover:shadow-lg sm:p-6 xl:col-span-2"
-            >
-              <div
-                class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div>
-                  <h2
-                    class="font-semibold text-slate-900"
-                  >
-                    Ringkasan Keuangan
-                  </h2>
-
-                  <p class="text-sm text-slate-500">
-                    Pemasukan dan pengeluaran bulan ini
-                  </p>
-                </div>
-
-                <select
-                  v-model="selectedMonth"
-                  class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm capitalize text-slate-600 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 sm:w-auto"
-                >
-                  <option
-                    v-for="month in monthOptions"
-                    :key="month"
-                    :value="month"
-                  >
-                    {{ formatMonth(month) }}
-                  </option>
-                </select>
-              </div>
-
-              <!-- Chart -->
-              <div
-                class="mt-8 rounded-xl bg-slate-50/70 p-4"
-              >
-                <div
-                  class="flex h-64 items-end justify-center gap-12 sm:gap-24"
-                >
-                  <!-- Income -->
-                  <div
-                    class="flex h-full w-16 flex-col justify-end sm:w-20"
-                  >
-                    <div
-                      class="flex h-full items-end justify-center"
-                    >
-                      <div
-                        class="w-10 rounded-t-xl bg-emerald-400 transition-all duration-500 sm:w-14"
-                        :style="{
-                          height: incomeHeight,
-                        }"
-                      ></div>
-                    </div>
-
-                    <div class="mt-3 text-center">
-                      <p
-                        class="text-xs font-medium text-slate-500"
-                      >
-                        Masuk
-                      </p>
-
-                      <p
-                        class="mt-1 text-xs font-semibold text-emerald-600"
-                      >
-                        {{ formatRupiah(income) }}
-                      </p>
-                    </div>
-                  </div>
-
-                  <!-- Expense -->
-                  <div
-                    class="flex h-full w-16 flex-col justify-end sm:w-20"
-                  >
-                    <div
-                      class="flex h-full items-end justify-center"
-                    >
-                      <div
-                        class="w-10 rounded-t-xl bg-red-400 transition-all duration-500 sm:w-14"
-                        :style="{
-                          height: expenseHeight,
-                        }"
-                      ></div>
-                    </div>
-
-                    <div class="mt-3 text-center">
-                      <p
-                        class="text-xs font-medium text-slate-500"
-                      >
-                        Keluar
-                      </p>
-
-                      <p
-                        class="mt-1 text-xs font-semibold text-red-600"
-                      >
-                        {{ formatRupiah(expense) }}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Empty chart -->
-                <div
-                  v-if="
-                    income === 0 &&
-                    expense === 0
-                  "
-                  class="mt-2 text-center text-xs text-slate-400"
-                >
-                  Belum ada transaksi pada bulan ini.
-                </div>
-              </div>
-            </div>
-
-            <!-- Quick Action -->
-            <div
-              class="rounded-2xl border border-slate-200/80 bg-white/90 p-5 shadow-sm backdrop-blur transition duration-300 hover:shadow-lg sm:p-6"
-            >
-              <h2
-                class="font-semibold text-slate-900"
-              >
-                Tambah Transaksi
-              </h2>
-
-              <p class="mt-1 text-sm text-slate-500">
-                Catat transaksi baru.
-              </p>
-
-              <div class="mt-6 space-y-3">
-                <RouterLink
-                  to="/income"
-                  class="group flex items-center gap-3 rounded-xl bg-emerald-50 p-4 text-emerald-700 transition hover:bg-emerald-100"
-                >
-                  <ArrowDownToLine :size="20" />
-
-                  <div>
-                    <p class="font-semibold">
-                      Uang Masuk
-                    </p>
-
-                    <p class="text-xs">
-                      Tambahkan pemasukan
-                    </p>
-                  </div>
-                </RouterLink>
-
-                <RouterLink
-                  to="/expense"
-                  class="group flex items-center gap-3 rounded-xl bg-red-50 p-4 text-red-700 transition hover:bg-red-100"
-                >
-                  <ArrowUpFromLine :size="20" />
-
-                  <div>
-                    <p class="font-semibold">
-                      Uang Keluar
-                    </p>
-
-                    <p class="text-xs">
-                      Tambahkan pengeluaran
-                    </p>
-                  </div>
-                </RouterLink>
-              </div>
-            </div>
-          </div>
-
-          <!-- Transactions -->
-          <div
-            class="mt-6 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm backdrop-blur transition duration-300 hover:shadow-lg"
+            class="rounded-2xl border border-slate-200/80 bg-white/90 p-5 shadow-sm backdrop-blur transition duration-300 hover:shadow-lg sm:p-6 xl:col-span-2"
           >
             <div
-              class="flex flex-col gap-3 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6"
+              class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
             >
               <div>
                 <h2
                   class="font-semibold text-slate-900"
                 >
-                  Transaksi Terakhir
+                  Ringkasan Keuangan
                 </h2>
 
                 <p class="text-sm text-slate-500">
-                  Aktivitas keuangan terbaru
+                  Pemasukan dan pengeluaran bulan ini
                 </p>
               </div>
 
-              <RouterLink
-                to="/reports"
-                class="text-sm font-semibold text-indigo-600 transition hover:text-indigo-700"
+              <select
+                v-model="selectedMonth"
+                class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm capitalize text-slate-600 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 sm:w-auto"
               >
-                Lihat semua
-              </RouterLink>
+                <option
+                  v-for="month in monthOptions"
+                  :key="month"
+                  :value="month"
+                >
+                  {{ formatMonth(month) }}
+                </option>
+              </select>
             </div>
 
-            <!-- Empty -->
+            <!-- Chart Content / Skeleton -->
             <div
-              v-if="recentTransactions.length === 0"
-              class="p-10 text-center"
+              class="mt-8 rounded-xl bg-slate-50/70 p-4"
             >
-              <Wallet
-                :size="32"
-                class="mx-auto text-slate-300"
-              />
+              <div v-if="loading" class="flex h-64 items-end justify-center gap-12 sm:gap-24 animate-pulse">
+                <div class="flex h-full w-16 flex-col justify-end sm:w-20 items-center">
+                  <div class="h-36 w-10 sm:w-14 rounded-t-xl bg-slate-200"></div>
+                  <div class="mt-3 h-3 w-12 rounded bg-slate-200"></div>
+                </div>
+                <div class="flex h-full w-16 flex-col justify-end sm:w-20 items-center">
+                  <div class="h-24 w-10 sm:w-14 rounded-t-xl bg-slate-200"></div>
+                  <div class="mt-3 h-3 w-12 rounded bg-slate-200"></div>
+                </div>
+              </div>
 
-              <p
-                class="mt-3 text-sm font-medium text-slate-600"
-              >
-                Belum ada transaksi
-              </p>
-
-              <p
-                class="mt-1 text-xs text-slate-400"
-              >
-                Tambahkan pemasukan atau pengeluaran
-                untuk mulai mencatat keuangan.
-              </p>
-            </div>
-
-            <!-- List -->
-            <div
-              v-else
-              class="divide-y divide-slate-100"
-            >
               <div
-                v-for="transaction in recentTransactions"
-                :key="transaction.id"
-                class="flex flex-col gap-3 p-5 transition hover:bg-slate-50/70 sm:flex-row sm:items-center sm:justify-between"
+                v-else
+                class="flex h-64 items-end justify-center gap-12 sm:gap-24"
               >
+                <!-- Income -->
                 <div
-                  class="flex min-w-0 items-center gap-3"
+                  class="flex h-full w-16 flex-col justify-end sm:w-20"
                 >
                   <div
-                    class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
-                    :class="
-                      transaction.type === 'income'
-                        ? 'bg-emerald-50 text-emerald-600'
-                        : 'bg-red-50 text-red-600'
-                    "
+                    class="flex h-full items-end justify-center"
                   >
-                    <ArrowDownToLine
-                      v-if="
-                        transaction.type === 'income'
-                      "
-                      :size="18"
-                    />
-
-                    <ArrowUpFromLine
-                      v-else
-                      :size="18"
-                    />
+                    <div
+                      class="w-10 rounded-t-xl bg-emerald-400 transition-all duration-500 sm:w-14"
+                      :style="{
+                        height: incomeHeight,
+                      }"
+                    ></div>
                   </div>
 
-                  <div class="min-w-0">
+                  <div class="mt-3 text-center">
                     <p
-                      class="truncate text-sm font-semibold text-slate-900"
+                      class="text-xs font-medium text-slate-500"
                     >
-                      {{ transaction.description }}
+                      Masuk
                     </p>
 
                     <p
-                      class="text-xs text-slate-400"
+                      class="mt-1 text-xs font-semibold text-emerald-600"
                     >
-                      {{ transaction.category }}
-                      ·
-                      {{
-                        formatDate(
-                          transaction.transaction_date,
-                        )
-                      }}
+                      {{ formatRupiah(income) }}
                     </p>
                   </div>
                 </div>
 
-                <p
-                  class="pl-13 text-sm font-bold sm:pl-0"
-                  :class="
-                    transaction.type === 'income'
-                      ? 'text-emerald-600'
-                      : 'text-red-600'
-                  "
+                <!-- Expense -->
+                <div
+                  class="flex h-full w-16 flex-col justify-end sm:w-20"
                 >
-                  {{
-                    transaction.type === 'income'
-                      ? '+'
-                      : '-'
-                  }}
+                  <div
+                    class="flex h-full items-end justify-center"
+                  >
+                    <div
+                      class="w-10 rounded-t-xl bg-red-400 transition-all duration-500 sm:w-14"
+                      :style="{
+                        height: expenseHeight,
+                      }"
+                    ></div>
+                  </div>
 
-                  {{
-                    formatRupiah(
-                      Number(transaction.amount),
-                    )
-                  }}
-                </p>
+                  <div class="mt-3 text-center">
+                    <p
+                      class="text-xs font-medium text-slate-500"
+                    >
+                      Keluar
+                    </p>
+
+                    <p
+                      class="mt-1 text-xs font-semibold text-red-600"
+                    >
+                      {{ formatRupiah(expense) }}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Empty chart -->
+              <div
+                v-if="!loading && income === 0 && expense === 0"
+                class="mt-2 text-center text-xs text-slate-400"
+              >
+                Belum ada transaksi pada bulan ini.
               </div>
             </div>
           </div>
-        </template>
+
+          <!-- Quick Action -->
+          <div
+            class="rounded-2xl border border-slate-200/80 bg-white/90 p-5 shadow-sm backdrop-blur transition duration-300 hover:shadow-lg sm:p-6"
+          >
+            <h2
+              class="font-semibold text-slate-900"
+            >
+              Tambah Transaksi
+            </h2>
+
+            <p class="mt-1 text-sm text-slate-500">
+              Catat transaksi baru.
+            </p>
+
+            <div class="mt-6 space-y-3">
+              <RouterLink
+                to="/income"
+                class="group flex items-center gap-3 rounded-xl bg-emerald-50 p-4 text-emerald-700 transition hover:bg-emerald-100"
+              >
+                <ArrowDownToLine :size="20" />
+
+                <div>
+                  <p class="font-semibold">
+                    Uang Masuk
+                  </p>
+
+                  <p class="text-xs">
+                    Tambahkan pemasukan
+                  </p>
+                </div>
+              </RouterLink>
+
+              <RouterLink
+                to="/expense"
+                class="group flex items-center gap-3 rounded-xl bg-red-50 p-4 text-red-700 transition hover:bg-red-100"
+              >
+                <ArrowUpFromLine :size="20" />
+
+                <div>
+                  <p class="font-semibold">
+                    Uang Keluar
+                  </p>
+
+                  <p class="text-xs">
+                    Tambahkan pengeluaran
+                  </p>
+                </div>
+              </RouterLink>
+            </div>
+          </div>
+        </div>
+
+        <!-- TRANSACTIONS LIST & SKELETON -->
+        <div
+          class="mt-6 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/90 shadow-sm backdrop-blur transition duration-300 hover:shadow-lg"
+        >
+          <div
+            class="flex flex-col gap-3 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6"
+          >
+            <div>
+              <h2
+                class="font-semibold text-slate-900"
+              >
+                Transaksi Terakhir
+              </h2>
+
+              <p class="text-sm text-slate-500">
+                Aktivitas keuangan terbaru
+              </p>
+            </div>
+
+            <RouterLink
+              to="/reports"
+              class="text-sm font-semibold text-indigo-600 transition hover:text-indigo-700"
+            >
+              Lihat semua
+            </RouterLink>
+          </div>
+
+          <!-- Skeleton Loading List -->
+          <div v-if="loading" class="divide-y divide-slate-100 animate-pulse">
+            <div v-for="i in 3" :key="'skeleton-item-' + i" class="flex items-center justify-between p-5">
+              <div class="flex items-center gap-3">
+                <div class="h-10 w-10 rounded-xl bg-slate-200"></div>
+                <div class="space-y-2">
+                  <div class="h-4 w-32 rounded bg-slate-200"></div>
+                  <div class="h-3 w-20 rounded bg-slate-200"></div>
+                </div>
+              </div>
+              <div class="h-4 w-24 rounded bg-slate-200"></div>
+            </div>
+          </div>
+
+          <!-- Empty -->
+          <div
+            v-else-if="recentTransactions.length === 0"
+            class="p-10 text-center"
+          >
+            <Wallet
+              :size="32"
+              class="mx-auto text-slate-300"
+            />
+
+            <p
+              class="mt-3 text-sm font-medium text-slate-600"
+            >
+              Belum ada transaksi
+            </p>
+
+            <p
+              class="mt-1 text-xs text-slate-400"
+            >
+              Tambahkan pemasukan atau pengeluaran
+              untuk mulai mencatat keuangan.
+            </p>
+          </div>
+
+          <!-- List -->
+          <div
+            v-else
+            class="divide-y divide-slate-100"
+          >
+            <div
+              v-for="transaction in recentTransactions"
+              :key="transaction.id"
+              class="flex flex-col gap-3 p-5 transition hover:bg-slate-50/70 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div
+                class="flex min-w-0 items-center gap-3"
+              >
+                <div
+                  class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                  :class="
+                    transaction.type === 'income'
+                      ? 'bg-emerald-50 text-emerald-600'
+                      : 'bg-red-50 text-red-600'
+                  "
+                >
+                  <ArrowDownToLine
+                    v-if="
+                      transaction.type === 'income'
+                    "
+                    :size="18"
+                  />
+
+                  <ArrowUpFromLine
+                    v-else
+                    :size="18"
+                  />
+                </div>
+
+                <div class="min-w-0">
+                  <p
+                    class="truncate text-sm font-semibold text-slate-900"
+                  >
+                    {{ transaction.description }}
+                  </p>
+
+                  <p
+                    class="text-xs text-slate-400"
+                  >
+                    {{ transaction.category }}
+                    ·
+                    {{
+                      formatDate(
+                        transaction.transaction_date,
+                      )
+                    }}
+                  </p>
+                </div>
+              </div>
+
+              <p
+                class="pl-13 text-sm font-bold sm:pl-0"
+                :class="
+                  transaction.type === 'income'
+                    ? 'text-emerald-600'
+                    : 'text-red-600'
+                "
+              >
+                {{
+                  transaction.type === 'income'
+                    ? '+'
+                    : '-'
+                }}
+
+                {{
+                  formatRupiah(
+                    Number(transaction.amount),
+                  )
+                }}
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </DashboardLayout>
