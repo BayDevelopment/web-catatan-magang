@@ -22,6 +22,9 @@ export const useAuthStore = defineStore('auth', () => {
   const loading = ref(true)
   const initialized = ref(false)
 
+  // Menyimpan referensi subscription auth state change untuk mencegah memory leak
+  let authSubscription: any = null
+
   // =========================
   // COMPUTED
   // =========================
@@ -39,24 +42,54 @@ export const useAuthStore = defineStore('auth', () => {
   // =========================
 
   const loadProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id, full_name, role, created_at')
-      .eq('id', userId)
-      .single()
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, role, created_at')
+        .eq('id', userId)
+        .single()
 
-    if (error) {
-      console.error(
-        'Gagal mengambil profile:',
-        error.message,
-      )
+      if (error) {
+        console.error('Gagal mengambil profile:', error.message)
+        profile.value = null
+        return
+      }
 
+      profile.value = data as Profile
+    } catch (err) {
+      console.error('Kesalahan tak terduga saat memuat profile:', err)
       profile.value = null
-
-      return
     }
+  }
 
-    profile.value = data as Profile
+  // =========================
+  // REGISTER (Aman & Validasi Email Terdaftar)
+  // =========================
+
+  const register = async (email: string, password: string, fullName: string) => {
+    loading.value = true
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+          },
+        },
+      })
+
+      if (error) {
+        // Supabase mengembalikan error jika email sudah terdaftar atau format tidak valid
+        return { success: false, message: error.message }
+      }
+
+      return { success: true, data }
+    } catch (err: any) {
+      return { success: false, message: err.message || 'Terjadi kesalahan saat registrasi' }
+    } finally {
+      loading.value = false
+    }
   }
 
   // =========================
@@ -85,31 +118,29 @@ export const useAuthStore = defineStore('auth', () => {
       // =========================
       // AUTH STATE LISTENER
       // =========================
+      // Daftarkan listener hanya sekali untuk mencegah duplikasi event
+      if (!authSubscription) {
+        const { data } = supabase.auth.onAuthStateChange(
+          (_event, newSession) => {
+            session.value = newSession
+            user.value = newSession?.user ?? null
 
-      supabase.auth.onAuthStateChange(
-        (_event, newSession) => {
-          session.value = newSession
-          user.value = newSession?.user ?? null
+            if (!newSession?.user) {
+              profile.value = null
+              return
+            }
 
-          if (!newSession?.user) {
-            profile.value = null
-            return
-          }
-
-          // Jangan melakukan request Supabase
-          // langsung di dalam callback.
-          setTimeout(() => {
-            void loadProfile(newSession.user.id)
-          }, 0)
-        },
-      )
+            setTimeout(() => {
+              void loadProfile(newSession.user.id)
+            }, 0)
+          },
+        )
+        authSubscription = data.subscription
+      }
 
       initialized.value = true
     } catch (error) {
-      console.error(
-        'Gagal menginisialisasi auth:',
-        error,
-      )
+      console.error('Gagal menginisialisasi auth:', error)
 
       user.value = null
       session.value = null
@@ -126,11 +157,15 @@ export const useAuthStore = defineStore('auth', () => {
   // =========================
 
   const logout = async () => {
-    await logoutService()
-
-    user.value = null
-    session.value = null
-    profile.value = null
+    try {
+      await logoutService()
+    } catch (error) {
+      console.error('Gagal saat proses logout:', error)
+    } finally {
+      user.value = null
+      session.value = null
+      profile.value = null
+    }
   }
 
   // =========================
@@ -149,6 +184,7 @@ export const useAuthStore = defineStore('auth', () => {
     isAdmin,
 
     init,
+    register,
     logout,
     loadProfile,
   }

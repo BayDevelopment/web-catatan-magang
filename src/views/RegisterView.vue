@@ -1,54 +1,53 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { Wallet, Eye, EyeOff } from 'lucide-vue-next'
-import { supabase } from '../lib/supabase'
-import { useRouter } from 'vue-router'
-import AppAlert from '../components/AppAlert.vue'
+import { ref } from "vue";
+import { Wallet, Eye, EyeOff } from "lucide-vue-next";
+import { supabase } from "../lib/supabase";
+import { useRouter } from "vue-router";
+import AppAlert from "../components/AppAlert.vue";
 
-const router = useRouter()
+const router = useRouter();
 
-const fullName = ref('')
-const email = ref('')
-const password = ref('')
-const confirmPassword = ref('')
+const fullName = ref("");
+const email = ref("");
+const password = ref("");
+const confirmPassword = ref("");
 
-const showPassword = ref(false)
-const loading = ref(false)
+const showPassword = ref(false);
+const loading = ref(false);
 
-const errorMessage = ref('')
-const successMessage = ref('')
+const errorMessage = ref("");
+const successMessage = ref("");
 
-const alertType = ref<'success' | 'error'>('error')
-const alertTitle = ref('')
-const alertMessage = ref('')
-const showAlert = ref(false)
+const alertType = ref<"success" | "error">("error");
+const alertTitle = ref("");
+const alertMessage = ref("");
+const showAlert = ref(false);
 
 const showModernAlert = (
-  type: 'success' | 'error',
+  type: "success" | "error",
   title: string,
   message: string,
 ) => {
-  alertType.value = type
-  alertTitle.value = title
-  alertMessage.value = message
-  showAlert.value = true
-}
+  alertType.value = type;
+  alertTitle.value = title;
+  alertMessage.value = message;
+  showAlert.value = true;
+};
 
 const validateEmail = (value: string) => {
-  const emailRegex =
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-  return emailRegex.test(value)
-}
+  return emailRegex.test(value);
+};
 
 const register = async () => {
-  errorMessage.value = ''
-  successMessage.value = ''
+  errorMessage.value = "";
+  successMessage.value = "";
 
-  const name = fullName.value.trim()
-  const emailValue = email.value.trim().toLowerCase()
-  const passwordValue = password.value
-  const confirmPasswordValue = confirmPassword.value
+  const name = fullName.value.trim();
+  const emailValue = email.value.trim().toLowerCase();
+  const passwordValue = password.value;
+  const confirmPasswordValue = confirmPassword.value;
 
   // =========================
   // VALIDASI FIELD KOSONG
@@ -56,38 +55,38 @@ const register = async () => {
 
   if (!name) {
     showModernAlert(
-      'error',
-      'Nama belum diisi',
-      'Silakan masukkan nama lengkap kamu.',
-    )
-    return
+      "error",
+      "Nama belum diisi",
+      "Silakan masukkan nama lengkap kamu.",
+    );
+    return;
   }
 
   if (!emailValue) {
     showModernAlert(
-      'error',
-      'Email belum diisi',
-      'Silakan masukkan alamat email kamu.',
-    )
-    return
+      "error",
+      "Email belum diisi",
+      "Silakan masukkan alamat email kamu.",
+    );
+    return;
   }
 
   if (!passwordValue) {
     showModernAlert(
-      'error',
-      'Password belum diisi',
-      'Silakan masukkan password.',
-    )
-    return
+      "error",
+      "Password belum diisi",
+      "Silakan masukkan password.",
+    );
+    return;
   }
 
   if (!confirmPasswordValue) {
     showModernAlert(
-      'error',
-      'Konfirmasi password belum diisi',
-      'Silakan ulangi password kamu.',
-    )
-    return
+      "error",
+      "Konfirmasi password belum diisi",
+      "Silakan ulangi password kamu.",
+    );
+    return;
   }
 
   // =========================
@@ -96,11 +95,11 @@ const register = async () => {
 
   if (name.length < 2) {
     showModernAlert(
-      'error',
-      'Nama tidak valid',
-      'Nama lengkap minimal terdiri dari 2 karakter.',
-    )
-    return
+      "error",
+      "Nama tidak valid",
+      "Nama lengkap minimal terdiri dari 2 karakter.",
+    );
+    return;
   }
 
   // =========================
@@ -109,11 +108,11 @@ const register = async () => {
 
   if (!validateEmail(emailValue)) {
     showModernAlert(
-      'error',
-      'Email tidak valid',
-      'Masukkan alamat email yang valid, contohnya nama@gmail.com.',
-    )
-    return
+      "error",
+      "Email tidak valid",
+      "Masukkan alamat email yang valid, contohnya nama@gmail.com.",
+    );
+    return;
   }
 
   // =========================
@@ -122,11 +121,11 @@ const register = async () => {
 
   if (passwordValue.length < 6) {
     showModernAlert(
-      'error',
-      'Password terlalu pendek',
-      'Password harus memiliki minimal 6 karakter.',
-    )
-    return
+      "error",
+      "Password terlalu pendek",
+      "Password harus memiliki minimal 6 karakter.",
+    );
+    return;
   }
 
   // =========================
@@ -135,24 +134,21 @@ const register = async () => {
 
   if (passwordValue !== confirmPasswordValue) {
     showModernAlert(
-      'error',
-      'Password tidak cocok',
-      'Password dan konfirmasi password harus sama.',
-    )
-    return
+      "error",
+      "Password tidak cocok",
+      "Password dan konfirmasi password harus sama.",
+    );
+    return;
   }
 
   // =========================
   // PROSES REGISTER
   // =========================
 
-  loading.value = true
+  loading.value = true;
 
   try {
-    const {
-      data,
-      error,
-    } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email: emailValue,
       password: passwordValue,
       options: {
@@ -160,56 +156,52 @@ const register = async () => {
           full_name: name,
         },
       },
-    })
+    });
 
     if (error) {
-      const message =
-        error.message.toLowerCase()
+      const message = error.message.toLowerCase();
 
       // Email sudah terdaftar
       if (
-        message.includes('already registered') ||
-        message.includes('already exists') ||
-        message.includes('user already registered')
+        message.includes("already registered") ||
+        message.includes("already exists") ||
+        message.includes("user already registered")
       ) {
         showModernAlert(
-          'error',
-          'Email sudah terdaftar',
-          'Email tersebut sudah memiliki akun. Silakan gunakan email lain atau masuk menggunakan akun tersebut.',
-        )
+          "error",
+          "Email sudah terdaftar",
+          "Email tersebut sudah memiliki akun. Silakan gunakan email lain atau masuk menggunakan akun tersebut.",
+        );
 
-        return
+        return;
       }
 
       // Rate limit
       if (
-        message.includes('rate limit') ||
-        message.includes('too many requests')
+        message.includes("rate limit") ||
+        message.includes("too many requests")
       ) {
         showModernAlert(
-          'error',
-          'Terlalu banyak percobaan',
-          'Terlalu banyak permintaan dalam waktu singkat. Tunggu beberapa saat sebelum mencoba lagi.',
-        )
+          "error",
+          "Terlalu banyak percobaan",
+          "Terlalu banyak permintaan dalam waktu singkat. Tunggu beberapa saat sebelum mencoba lagi.",
+        );
 
-        return
+        return;
       }
 
       // Email invalid
-      if (
-        message.includes('invalid') &&
-        message.includes('email')
-      ) {
+      if (message.includes("invalid") && message.includes("email")) {
         showModernAlert(
-          'error',
-          'Email tidak valid',
-          'Format email tidak diterima. Gunakan alamat email yang valid seperti nama@gmail.com.',
-        )
+          "error",
+          "Email tidak valid",
+          "Format email tidak diterima. Gunakan alamat email yang valid seperti nama@gmail.com.",
+        );
 
-        return
+        return;
       }
 
-      throw new Error(error.message)
+      throw new Error(error.message);
     }
 
     // =========================
@@ -217,48 +209,40 @@ const register = async () => {
     // =========================
 
     if (data.user) {
-      if (data.session) {
-        showModernAlert(
-          'success',
-          'Registrasi berhasil',
-          'Akun kamu berhasil dibuat. Selamat datang di KeuanganKu.',
-        )
+      // Cek apakah email konfirmasi aktif atau tidak di Supabase
+      const messageText = data.session
+        ? "Akun kamu berhasil dibuat. Silakan masuk."
+        : "Akun berhasil dibuat. Silakan cek email untuk verifikasi, lalu masuk.";
 
-        setTimeout(() => {
-          router.push('/dashboard')
-        }, 1000)
+      showModernAlert("success", "Registrasi Berhasil", messageText);
 
-        return
-      }
+      // Beri jeda 1.5 detik agar alert terbaca, lalu arahkan ke halaman login
+      setTimeout(() => {
+        router.push("/login");
+      }, 1500);
 
-      showModernAlert(
-        'success',
-        'Registrasi berhasil',
-        'Akun berhasil dibuat. Silakan cek email kamu untuk melakukan verifikasi.',
-      )
-
-      return
+      return;
     }
 
     showModernAlert(
-      'error',
-      'Registrasi gagal',
-      'Akun tidak berhasil dibuat. Silakan coba lagi.',
-    )
+      "error",
+      "Registrasi gagal",
+      "Akun tidak berhasil dibuat. Silakan coba lagi.",
+    );
   } catch (error) {
-    console.error('Register error:', error)
+    console.error("Register error:", error);
 
     showModernAlert(
-      'error',
-      'Registrasi gagal',
+      "error",
+      "Registrasi gagal",
       error instanceof Error
         ? error.message
-        : 'Terjadi kesalahan. Silakan coba lagi.',
-    )
+        : "Terjadi kesalahan. Silakan coba lagi.",
+    );
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-}
+};
 </script>
 
 <template>
@@ -296,9 +280,7 @@ const register = async () => {
           KeuanganKu
         </h1>
 
-        <p class="mt-1 text-sm text-slate-500">
-          Buat akun baru
-        </p>
+        <p class="mt-1 text-sm text-slate-500">Buat akun baru</p>
       </div>
 
       <!-- Card -->
@@ -323,9 +305,7 @@ const register = async () => {
               <Wallet :size="20" />
             </div>
 
-            <h2 class="text-xl font-semibold text-slate-900">
-              Daftar akun
-            </h2>
+            <h2 class="text-xl font-semibold text-slate-900">Daftar akun</h2>
 
             <p class="mt-1 text-sm text-slate-500">
               Mulai kelola keuangan kamu.
@@ -333,15 +313,10 @@ const register = async () => {
           </div>
 
           <!-- Form -->
-          <form
-            class="mt-6 space-y-5"
-            @submit.prevent="register"
-          >
+          <form class="mt-6 space-y-5" @submit.prevent="register">
             <!-- Nama -->
             <div>
-              <label
-                class="mb-2 block text-sm font-medium text-slate-700"
-              >
+              <label class="mb-2 block text-sm font-medium text-slate-700">
                 Nama lengkap
               </label>
 
@@ -357,9 +332,7 @@ const register = async () => {
 
             <!-- Email -->
             <div>
-              <label
-                class="mb-2 block text-sm font-medium text-slate-700"
-              >
+              <label class="mb-2 block text-sm font-medium text-slate-700">
                 Email
               </label>
 
@@ -375,9 +348,7 @@ const register = async () => {
 
             <!-- Password -->
             <div>
-              <label
-                class="mb-2 block text-sm font-medium text-slate-700"
-              >
+              <label class="mb-2 block text-sm font-medium text-slate-700">
                 Password
               </label>
 
@@ -396,29 +367,19 @@ const register = async () => {
                   @click="showPassword = !showPassword"
                   class="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
                   :aria-label="
-                    showPassword
-                      ? 'Sembunyikan password'
-                      : 'Tampilkan password'
+                    showPassword ? 'Sembunyikan password' : 'Tampilkan password'
                   "
                 >
-                  <EyeOff
-                    v-if="showPassword"
-                    :size="19"
-                  />
+                  <EyeOff v-if="showPassword" :size="19" />
 
-                  <Eye
-                    v-else
-                    :size="19"
-                  />
+                  <Eye v-else :size="19" />
                 </button>
               </div>
             </div>
 
             <!-- Confirm Password -->
             <div>
-              <label
-                class="mb-2 block text-sm font-medium text-slate-700"
-              >
+              <label class="mb-2 block text-sm font-medium text-slate-700">
                 Konfirmasi password
               </label>
 
@@ -443,12 +404,9 @@ const register = async () => {
                 class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
               ></span>
 
-              <Wallet
-                v-else
-                :size="18"
-              />
+              <Wallet v-else :size="18" />
 
-              {{ loading ? 'Membuat akun...' : 'Daftar' }}
+              {{ loading ? "Membuat akun..." : "Daftar" }}
             </button>
           </form>
 
