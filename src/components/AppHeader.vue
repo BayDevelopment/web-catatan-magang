@@ -1,61 +1,86 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue'
-import { LogOut, UserCircle, ChevronDown, Menu } from 'lucide-vue-next'
-import { useRouter } from 'vue-router'
-import { useAuthStore } from '../stores/auth'
+import { computed, ref, onMounted, onUnmounted } from "vue";
+import {
+  LogOut,
+  UserCircle,
+  ChevronDown,
+  Menu,
+  UserRound,
+  LockKeyhole,
+} from "lucide-vue-next";
+import { useRouter } from "vue-router";
+import { useAuthStore } from "../stores/auth";
 
 defineProps<{
-  title: string
-  subtitle?: string
-}>()
+  title: string;
+  subtitle?: string;
+}>();
 
-const router = useRouter()
-const authStore = useAuthStore()
-const dropdownOpen = ref(false)
+const router = useRouter();
+const authStore = useAuthStore();
+const dropdownOpen = ref(false);
 
 const userEmail = computed(() => {
-  return authStore.user?.email ?? 'User'
-})
+  return authStore.user?.email ?? "User";
+});
 
 const toggleDropdown = () => {
-  dropdownOpen.value = !dropdownOpen.value
-}
+  dropdownOpen.value = !dropdownOpen.value;
+};
 
 const openMobileSidebar = () => {
-  window.dispatchEvent(new CustomEvent('open-mobile-sidebar'))
-}
+  window.dispatchEvent(new CustomEvent("open-mobile-sidebar"));
+};
+
+const openProfile = async () => {
+  dropdownOpen.value = false;
+  await router.push("/profile");
+};
+
+const openPassword = async () => {
+  dropdownOpen.value = false;
+  await router.push({
+    path: "/profile",
+    query: { section: "password" },
+  });
+};
 
 const closeDropdown = (e: MouseEvent) => {
-  const target = e.target as HTMLElement
-  if (!target.closest('.profile-dropdown-container')) {
-    dropdownOpen.value = false
+  const target = e.target as HTMLElement;
+
+  if (!target.closest(".profile-dropdown-container")) {
+    dropdownOpen.value = false;
   }
-}
+};
 
 const handleLogout = async () => {
-  dropdownOpen.value = false
+  dropdownOpen.value = false;
+
   try {
-    await authStore.logout()
+    await authStore.logout();
   } catch (error) {
-    console.error('Logout gagal:', error)
+    console.error("Logout gagal:", error);
   } finally {
-    await router.replace('/login')
+    await router.replace("/login");
   }
-}
+};
 
 onMounted(() => {
-  document.addEventListener('click', closeDropdown)
-})
+  document.addEventListener("click", closeDropdown);
+});
 
 onUnmounted(() => {
-  document.removeEventListener('click', closeDropdown)
-})
+  document.removeEventListener("click", closeDropdown);
+});
 </script>
 
 <template>
-  <header class="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
-    <div class="flex min-h-20 items-center justify-between px-4 sm:px-6 lg:px-8 gap-4">
-
+  <header
+    class="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur"
+  >
+    <div
+      class="flex min-h-20 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8"
+    >
       <!-- Mobile menu button -->
       <button
         type="button"
@@ -82,7 +107,6 @@ onUnmounted(() => {
 
       <!-- User Profile & Dropdown Menu -->
       <div class="relative profile-dropdown-container flex items-center">
-        
         <!-- Profile Trigger Button -->
         <button
           type="button"
@@ -92,24 +116,25 @@ onUnmounted(() => {
           :aria-expanded="dropdownOpen"
         >
           <div class="hidden text-right sm:block">
-            <p class="max-w-[160px] truncate text-sm font-semibold text-slate-800">
+            <p
+              class="max-w-[160px] truncate text-sm font-semibold text-slate-800"
+            >
               {{ userEmail }}
             </p>
-            <p class="text-xs text-slate-500">
-              Akun Saya
-            </p>
+
+            <p class="text-xs text-slate-500">Akun Saya</p>
           </div>
 
           <div
-            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600 font-semibold shadow-inner"
+            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-100 font-semibold text-indigo-600 shadow-inner"
           >
             <UserCircle :size="24" />
           </div>
-          
-          <ChevronDown 
-            :size="16" 
-            class="text-slate-400 hidden sm:block transition-transform duration-200" 
-            :class="{ 'rotate-180': dropdownOpen }" 
+
+          <ChevronDown
+            :size="16"
+            class="hidden text-slate-400 transition-transform duration-200 sm:block"
+            :class="{ 'rotate-180': dropdownOpen }"
           />
         </button>
 
@@ -124,15 +149,40 @@ onUnmounted(() => {
         >
           <div
             v-if="dropdownOpen"
-            class="absolute right-0 top-full mt-2 w-64 origin-top-right rounded-2xl border border-slate-200/80 bg-white p-3 shadow-xl shadow-slate-200/50 backdrop-blur-xl z-50"
+            class="absolute right-0 top-full z-50 mt-2 w-64 origin-top-right rounded-2xl border border-slate-200/80 bg-white p-3 shadow-xl shadow-slate-200/50 backdrop-blur-xl"
           >
-            <!-- Mobile Email Info Header inside Dropdown -->
+            <!-- Mobile Email Info -->
             <div class="mb-2 border-b border-slate-100 px-3 pb-3 sm:hidden">
               <p class="text-xs text-slate-400">Masuk sebagai</p>
-              <p class="truncate text-sm font-semibold text-slate-800">{{ userEmail }}</p>
+              <p class="truncate text-sm font-semibold text-slate-800">
+                {{ userEmail }}
+              </p>
             </div>
 
             <div class="space-y-1">
+              <!-- Profil Saya -->
+              <button
+                type="button"
+                @click="openProfile"
+                class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-indigo-50 hover:text-indigo-700"
+              >
+                <UserRound :size="18" />
+                Profil Saya
+              </button>
+
+              <!-- Ubah Password -->
+              <button
+                type="button"
+                @click="openPassword"
+                class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-indigo-50 hover:text-indigo-700"
+              >
+                <LockKeyhole :size="18" />
+                Ubah Password
+              </button>
+
+              <div class="my-2 border-t border-slate-100" />
+
+              <!-- Logout -->
               <button
                 type="button"
                 @click="handleLogout"
@@ -144,9 +194,7 @@ onUnmounted(() => {
             </div>
           </div>
         </transition>
-
       </div>
-
     </div>
   </header>
 </template>
