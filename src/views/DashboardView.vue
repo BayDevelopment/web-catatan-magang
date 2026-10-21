@@ -23,6 +23,7 @@ const PAYDAY = 22;
 const PER_PAGE = 5;
 const MS_DAY = 24 * 60 * 60 * 1000;
 const ROUNDING_UNIT = 1000;
+const EARLY_PAY_DAYS = 7;
 
 const FIXED_KEYWORDS = [
   "kos",
@@ -36,13 +37,21 @@ const FIXED_KEYWORDS = [
 ];
 
 const SALARY_KEYWORDS = ["gaji", "salary", "payroll"];
-const EARLY_PAY_DAYS = 7;
+
+/**
+ * Mendukung flag opsional meskipun interface Transaction
+ * belum mempunyai is_salary dan is_fixed.
+ */
+type TransactionWithFlags = Transaction & {
+  is_salary?: boolean | null;
+  is_fixed?: boolean | null;
+};
 
 /* ------------------------------------------------------------------ */
 /* State                                                               */
 /* ------------------------------------------------------------------ */
 
-const transactions = ref<Transaction[]>([]);
+const transactions = ref<TransactionWithFlags[]>([]);
 const loading = ref(true);
 const errorMessage = ref("");
 const currentPage = ref(1);
@@ -58,13 +67,13 @@ const formatRupiah = (value: number) =>
     style: "currency",
     currency: "IDR",
     maximumFractionDigits: 0,
-  }).format(value);
+  }).format(Number.isFinite(value) ? value : 0);
 
 const formatCompact = (value: number) =>
   new Intl.NumberFormat("id-ID", {
     notation: "compact",
     maximumFractionDigits: 1,
-  }).format(value);
+  }).format(Number.isFinite(value) ? value : 0);
 
 const formatDate = (date: string) =>
   new Intl.DateTimeFormat("id-ID", {
@@ -94,16 +103,16 @@ const normalizeDate = (value: unknown): string => {
     return text;
   }
 
-  const hasTimezone = /(Z|[+-]\d{2}:?\d{2})$/i.test(text);
-
-  if (!hasTimezone && /^\d{4}-\d{2}-\d{2}[T ]/.test(text)) {
+  // Tanggal database tanpa zona waktu dipertahankan
+  // agar tidak bergeser ke hari sebelumnya.
+  if (/^\d{4}-\d{2}-\d{2}[T ]/.test(text)) {
     return text.slice(0, 10);
   }
 
   const parsed = new Date(text);
 
   if (Number.isNaN(parsed.getTime())) {
-    return text.slice(0, 10);
+    return "";
   }
 
   return toISO(parsed);
@@ -121,8 +130,9 @@ const addMonthsOnPayday = (date: Date, months: number) =>
 const differenceInDays = (from: Date, to: Date) =>
   Math.round((startOfDay(to).getTime() - startOfDay(from).getTime()) / MS_DAY);
 
-const amountOf = (transaction: Transaction) => {
+const amountOf = (transaction: TransactionWithFlags) => {
   const amount = Number(transaction.amount);
+
   return Number.isFinite(amount) ? Math.max(amount, 0) : 0;
 };
 
@@ -130,13 +140,11 @@ const amountOf = (transaction: Transaction) => {
 /* Pengenalan transaksi gaji dan biaya tetap                            */
 /* ------------------------------------------------------------------ */
 
-const isSalary = (transaction: Transaction) => {
+const isSalary = (transaction: TransactionWithFlags) => {
   if (transaction.type !== "income") {
     return false;
   }
 
-  // Jika pengguna menandai transaksi sebagai gaji,
-  // nilai eksplisit tersebut menjadi sumber utama.
   if (transaction.is_salary === true) {
     return true;
   }
@@ -152,7 +160,7 @@ const isSalary = (transaction: Transaction) => {
   return SALARY_KEYWORDS.some((keyword) => text.includes(keyword));
 };
 
-const isFixedExpense = (transaction: Transaction) => {
+const isFixedExpense = (transaction: TransactionWithFlags) => {
   if (transaction.type !== "expense") {
     return false;
   }
@@ -183,11 +191,13 @@ const loadTransactions = async () => {
   try {
     const data = await getTransactions();
 
-    transactions.value = data.map((transaction) => ({
-      ...transaction,
-      transaction_date: normalizeDate(transaction.transaction_date),
-      amount: amountOf(transaction),
-    }));
+    transactions.value = data
+      .map((transaction) => ({
+        ...transaction,
+        transaction_date: normalizeDate(transaction.transaction_date),
+        amount: amountOf(transaction),
+      }))
+      .filter((transaction) => transaction.transaction_date !== "");
 
     now.value = new Date();
     currentPage.value = 1;
@@ -218,16 +228,13 @@ const balance = computed(() =>
 
 /* ------------------------------------------------------------------ */
 /* Periode gajian                                                       */
-/*                                                                      */
-/* Default: tanggal 22 bulan sebelumnya sampai tanggal 21 bulan ini     */
-/* Gaji yang tercatat pada tanggal 15-22 dapat menjadi awal periode      */
-/* jika tanggal gajian berikutnya masih di masa depan.                  */
 /* ------------------------------------------------------------------ */
 
 const period = computed(() => {
   const today = startOfDay(now.value);
   const todayISO = toISO(today);
 
+  // Periode default: tanggal 22 sampai tanggal 21 berikutnya.
   let start =
     today.getDate() >= PAYDAY
       ? new Date(today.getFullYear(), today.getMonth(), PAYDAY)
@@ -248,16 +255,16 @@ const period = computed(() => {
 
     const day = salaryDay.getDate();
 
-    // Gaji tanggal 15 sampai 22 diasumsikan untuk siklus
-    // yang berakhir pada tanggal 21 bulan berikutnya.
+    // Gaji tanggal 15–21 diasumsikan sebagai pembayaran
+    // awal untuk siklus gajian berikutnya.
     const isEarlyOrOnPayday = day >= PAYDAY - EARLY_PAY_DAYS;
 
     const candidateNextPayday = isEarlyOrOnPayday
       ? addMonthsOnPayday(salaryDay, 1)
       : new Date(salaryDay.getFullYear(), salaryDay.getMonth(), PAYDAY);
 
-    // Gunakan tanggal gaji aktual jika periode berikutnya
-    // masih belum tiba.
+    // Gaji aktual menjadi acuan jika tanggal gajian
+    // selanjutnya belum tiba.
     if (candidateNextPayday.getTime() > today.getTime()) {
       start = salaryDay;
       nextPayday = candidateNextPayday;
@@ -268,8 +275,6 @@ const period = computed(() => {
   const end = addDays(nextPayday, -1);
   const totalDays = Math.max(differenceInDays(start, nextPayday), 1);
   const dayIndex = differenceInDays(start, today);
-
-  // Hari ini tetap dihitung sebagai satu hari jatah.
   const daysLeft = Math.max(differenceInDays(today, nextPayday), 1);
 
   return {
@@ -334,44 +339,35 @@ const periodExpense = computed(() =>
 );
 
 /* ------------------------------------------------------------------ */
-/* Perhitungan dana dan batas harian                                    */
+/* Perhitungan anggaran                                                 */
 /* ------------------------------------------------------------------ */
 
 /**
- * Dana periode ini mencakup saldo yang terbawa dari periode sebelumnya
- * ditambah pemasukan selama periode aktif.
+ * Dana periode terdiri dari saldo sebelumnya dan pemasukan
+ * pada periode aktif.
  */
 const fundsThisPeriod = computed(
   () => openingBalance.value + periodIncome.value,
 );
 
-/** Sisa bersih setelah seluruh pengeluaran periode ini. */
+/** Sisa bersih setelah semua pengeluaran periode aktif. */
 const remainingBudget = computed(
   () => fundsThisPeriod.value - periodExpense.value,
 );
 
-/** Total biaya tetap yang sudah dicatat pada periode ini. */
+/** Biaya tetap yang dicatat dalam periode aktif. */
 const fixedExpenseTotal = computed(() =>
   periodTransactions.value
     .filter(isFixedExpense)
     .reduce((total, transaction) => total + amountOf(transaction), 0),
 );
 
-/** Pengeluaran variabel: pengeluaran selain biaya tetap. */
+/** Pengeluaran variabel adalah pengeluaran selain biaya tetap. */
 const variableExpenses = computed(() =>
   periodTransactions.value.filter(
     (transaction) =>
       transaction.type === "expense" && !isFixedExpense(transaction),
   ),
-);
-
-/** Pengeluaran variabel yang dicatat hari ini. */
-const spentToday = computed(() =>
-  variableExpenses.value
-    .filter(
-      (transaction) => transaction.transaction_date === period.value.today,
-    )
-    .reduce((total, transaction) => total + amountOf(transaction), 0),
 );
 
 /** Pengeluaran variabel sebelum hari ini. */
@@ -381,9 +377,19 @@ const variableSpentBeforeToday = computed(() =>
     .reduce((total, transaction) => total + amountOf(transaction), 0),
 );
 
+/** Pengeluaran variabel hari ini. */
+const spentToday = computed(() =>
+  variableExpenses.value
+    .filter(
+      (transaction) => transaction.transaction_date === period.value.today,
+    )
+    .reduce((total, transaction) => total + amountOf(transaction), 0),
+);
+
 /**
- * Dana yang tersedia untuk jatah harian sebelum pengeluaran hari ini.
- * Digunakan untuk menentukan batas pengeluaran harian.
+ * Pool untuk perhitungan jatah harian.
+ * Pengeluaran hari ini belum dikurangi di sini karena
+ * akan dikurangkan pada todayLeft.
  */
 const poolForDaily = computed(
   () =>
@@ -392,15 +398,16 @@ const poolForDaily = computed(
     variableSpentBeforeToday.value,
 );
 
-/**
- * Sisa dana jajan setelah biaya tetap dan seluruh pengeluaran variabel,
- * termasuk pengeluaran hari ini, dikurangi.
- */
+/** Sisa pool setelah pengeluaran variabel hari ini. */
 const remainingDailyPool = computed(
   () => poolForDaily.value - spentToday.value,
 );
 
-/** Jatah harian dibulatkan ke bawah ke ribuan rupiah. */
+/**
+ * Jatah harian dibagi rata berdasarkan sisa hari hingga
+ * tanggal gajian berikutnya, termasuk hari ini.
+ * Hasil dibulatkan ke bawah ke kelipatan Rp1.000.
+ */
 const dailyBudget = computed(() => {
   const pool = poolForDaily.value;
   const daysLeft = period.value.daysLeft;
@@ -412,10 +419,10 @@ const dailyBudget = computed(() => {
   return Math.floor(pool / daysLeft / ROUNDING_UNIT) * ROUNDING_UNIT;
 });
 
-/** Sisa jatah harian setelah pengeluaran variabel hari ini. */
+/** Sisa atau kelebihan jatah hari ini. */
 const todayLeft = computed(() => dailyBudget.value - spentToday.value);
 
-/** Persentase total pengeluaran dibandingkan dana periode. */
+/** Persentase pengeluaran dari dana periode. */
 const usedPercent = computed(() => {
   if (fundsThisPeriod.value <= 0) {
     return periodExpense.value > 0 ? 100 : 0;
@@ -427,7 +434,7 @@ const usedPercent = computed(() => {
   );
 });
 
-/** Status anggaran berdasarkan kondisi keuangan saat ini. */
+/** Status kondisi anggaran. */
 const status = computed(() => {
   if (remainingBudget.value < 0) {
     return {
@@ -524,7 +531,13 @@ const dayPoints = computed<DayPoint[]>(() => {
 
 const W = 760;
 const H = 300;
-const PAD = { top: 16, right: 16, bottom: 32, left: 56 };
+const PAD = {
+  top: 16,
+  right: 16,
+  bottom: 32,
+  left: 56,
+};
+
 const innerW = W - PAD.left - PAD.right;
 const innerH = H - PAD.top - PAD.bottom;
 
@@ -532,6 +545,7 @@ const niceStep = (max: number) => {
   const raw = Math.max(max, 1) / 4;
   const power = 10 ** Math.floor(Math.log10(raw));
   const factor = raw / power;
+
   const niceFactor = factor <= 1 ? 1 : factor <= 2 ? 2 : factor <= 5 ? 5 : 10;
 
   return niceFactor * power;
@@ -545,6 +559,7 @@ const yScale = computed(() => {
   ]);
 
   const rawMax = Math.max(...values, fundsThisPeriod.value, 1);
+
   const rawMin = Math.min(...values, 0);
   const step = niceStep(rawMax - rawMin);
   const max = Math.ceil(rawMax / step) * step;
@@ -552,7 +567,7 @@ const yScale = computed(() => {
 
   const ticks: number[] = [];
 
-  for (let value = min; value <= max + 1; value += step) {
+  for (let value = min; value <= max + step * 0.001; value += step) {
     ticks.push(value);
   }
 
@@ -577,14 +592,19 @@ const balanceLine = computed(() =>
     .map((day, index) =>
       day.balance === null ? null : `${xCenter(index)},${yPos(day.balance)}`,
     )
-    .filter(Boolean)
+    .filter((point): point is string => point !== null)
     .join(" "),
 );
 
 const balanceArea = computed(() => {
   const points = dayPoints.value
     .map((day, index) =>
-      day.balance === null ? null : { x: xCenter(index), y: yPos(day.balance) },
+      day.balance === null
+        ? null
+        : {
+            x: xCenter(index),
+            y: yPos(day.balance),
+          },
     )
     .filter((point): point is { x: number; y: number } => point !== null);
 
@@ -626,7 +646,10 @@ const lastBalancePoint = computed(() => {
 
 const xLabels = computed(() =>
   dayPoints.value
-    .map((day, index) => ({ i: index, iso: day.iso }))
+    .map((day, index) => ({
+      i: index,
+      iso: day.iso,
+    }))
     .filter(
       ({ i }) => i === 0 || i % 5 === 0 || i === dayPoints.value.length - 1,
     )
@@ -650,6 +673,7 @@ const tooltipStyle = computed(() => {
   }
 
   const leftPercent = (xCenter(hoverIndex.value) / W) * 100;
+
   const flip = leftPercent > 62;
 
   return {
@@ -692,6 +716,7 @@ const rangeText = computed(() => {
   }
 
   const from = (currentPage.value - 1) * PER_PAGE + 1;
+
   const to = Math.min(currentPage.value * PER_PAGE, total);
 
   return `${from}–${to} dari ${total} transaksi`;
@@ -750,6 +775,8 @@ onMounted(() => {
 });
 
 onActivated(() => {
+  // onActivated hanya diperlukan ketika halaman menggunakan KeepAlive.
+  // Hindari pemanggilan ganda saat pertama kali mounted.
   if (initialLoadDone) {
     void loadTransactions();
   } else {
@@ -757,6 +784,7 @@ onActivated(() => {
   }
 });
 </script>
+
 <template>
   <!-- Background blobs -->
   <Teleport to="body">
