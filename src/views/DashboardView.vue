@@ -382,15 +382,8 @@ const variableSpentBeforeToday = computed(() =>
 );
 
 /**
- * Dana untuk perhitungan jatah harian:
- * dana periode - biaya tetap tercatat - pengeluaran variabel sebelum hari ini.
- *
- * Pengeluaran variabel hari ini tidak dikurangi di sini agar jatah harian
- * tidak langsung turun setiap kali pengguna mencatat transaksi hari ini.
- * Pengeluaran hari ini ditampilkan terpisah melalui todayLeft.
- *
- * Catatan: biaya tetap yang belum dicatat sebagai transaksi pengeluaran
- * tidak bisa diketahui otomatis dari data transaksi ini.
+ * Dana yang tersedia untuk jatah harian sebelum pengeluaran hari ini.
+ * Digunakan untuk menentukan batas pengeluaran harian.
  */
 const poolForDaily = computed(
   () =>
@@ -399,22 +392,30 @@ const poolForDaily = computed(
     variableSpentBeforeToday.value,
 );
 
+/**
+ * Sisa dana jajan setelah biaya tetap dan seluruh pengeluaran variabel,
+ * termasuk pengeluaran hari ini, dikurangi.
+ */
+const remainingDailyPool = computed(
+  () => poolForDaily.value - spentToday.value,
+);
+
 /** Jatah harian dibulatkan ke bawah ke ribuan rupiah. */
 const dailyBudget = computed(() => {
   const pool = poolForDaily.value;
+  const daysLeft = period.value.daysLeft;
 
-  if (pool <= 0) {
+  if (pool <= 0 || daysLeft <= 0) {
     return 0;
   }
 
-  return (
-    Math.floor(pool / period.value.daysLeft / ROUNDING_UNIT) * ROUNDING_UNIT
-  );
+  return Math.floor(pool / daysLeft / ROUNDING_UNIT) * ROUNDING_UNIT;
 });
 
 /** Sisa jatah harian setelah pengeluaran variabel hari ini. */
 const todayLeft = computed(() => dailyBudget.value - spentToday.value);
 
+/** Persentase total pengeluaran dibandingkan dana periode. */
 const usedPercent = computed(() => {
   if (fundsThisPeriod.value <= 0) {
     return periodExpense.value > 0 ? 100 : 0;
@@ -426,6 +427,7 @@ const usedPercent = computed(() => {
   );
 });
 
+/** Status anggaran berdasarkan kondisi keuangan saat ini. */
 const status = computed(() => {
   if (remainingBudget.value < 0) {
     return {
@@ -434,9 +436,16 @@ const status = computed(() => {
     };
   }
 
-  if (poolForDaily.value < 0) {
+  if (remainingDailyPool.value < 0) {
     return {
       label: "Dana tidak cukup",
+      cls: "bg-amber-400/20 text-amber-100",
+    };
+  }
+
+  if (todayLeft.value < 0) {
+    return {
+      label: "Jatah harian terlampaui",
       cls: "bg-amber-400/20 text-amber-100",
     };
   }
