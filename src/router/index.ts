@@ -1,5 +1,5 @@
-import { createRouter, createWebHistory } from 'vue-router'
-import { useAuthStore } from '../stores/auth'
+import { createRouter, createWebHistory } from "vue-router";
+import { useAuthStore } from "../stores/auth";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -10,18 +10,18 @@ const router = createRouter({
     // =========================
 
     {
-      path: '/login',
-      name: 'login',
-      component: () => import('../views/LoginView.vue'),
+      path: "/login",
+      name: "login",
+      component: () => import("../views/LoginView.vue"),
       meta: {
         guestOnly: true,
       },
     },
 
     {
-      path: '/register',
-      name: 'register',
-      component: () => import('../views/RegisterView.vue'),
+      path: "/register",
+      name: "register",
+      component: () => import("../views/RegisterView.vue"),
       meta: {
         guestOnly: true,
       },
@@ -32,41 +32,54 @@ const router = createRouter({
     // =========================
 
     {
-      path: '/',
-      redirect: '/dashboard',
+      path: "/",
+      redirect: "/dashboard",
     },
 
     {
-      path: '/dashboard',
-      name: 'dashboard',
-      component: () => import('../views/DashboardView.vue'),
+      path: "/dashboard",
+      name: "dashboard",
+      component: () => import("../views/DashboardView.vue"),
       meta: {
         requiresAuth: true,
       },
     },
 
     {
-      path: '/income',
-      name: 'income',
-      component: () => import('../views/IncomeView.vue'),
+      path: "/income",
+      name: "income",
+      component: () => import("../views/IncomeView.vue"),
       meta: {
         requiresAuth: true,
       },
     },
 
     {
-      path: '/expense',
-      name: 'expense',
-      component: () => import('../views/ExpenseView.vue'),
+      path: "/expense",
+      name: "expense",
+      component: () => import("../views/ExpenseView.vue"),
       meta: {
         requiresAuth: true,
       },
     },
 
     {
-      path: '/reports',
-      name: 'reports',
-      component: () => import('../views/ReportsView.vue'),
+      path: "/reports",
+      name: "reports",
+      component: () => import("../views/ReportsView.vue"),
+      meta: {
+        requiresAuth: true,
+      },
+    },
+
+    // =========================
+    // PROFILE
+    // =========================
+
+    {
+      path: "/profile",
+      name: "profile",
+      component: () => import("../views/Profile.vue"),
       meta: {
         requiresAuth: true,
       },
@@ -77,28 +90,27 @@ const router = createRouter({
     // =========================
 
     {
-      path: '/admin',
-      name: 'admin',
-      component: () =>
-        import('../views/admin/AdminDashboardView.vue'),
+      path: "/admin",
+      name: "admin",
+      component: () => import("../views/admin/AdminDashboardView.vue"),
       meta: {
         requiresAuth: true,
         requiresAdmin: true,
       },
     },
   ],
-})
+});
 
 // =========================
 // ROUTE GUARD
 // =========================
 
 router.beforeEach(async (to) => {
-  const authStore = useAuthStore()
+  const authStore = useAuthStore();
 
   // Pastikan status login + profile sudah dimuat
   if (!authStore.initialized) {
-    await authStore.init()
+    await authStore.init();
   }
 
   // =========================
@@ -107,45 +119,36 @@ router.beforeEach(async (to) => {
 
   // User yang sudah login tidak boleh
   // kembali ke login/register
-  if (
-    to.meta.guestOnly &&
-    authStore.isAuthenticated
-  ) {
+  if (to.meta.guestOnly && authStore.isAuthenticated) {
     return {
-      name: 'dashboard',
-    }
+      name: "dashboard",
+    };
   }
 
   // =========================
   // WAJIB LOGIN
   // =========================
 
-  if (
-    to.meta.requiresAuth &&
-    !authStore.isAuthenticated
-  ) {
+  if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     return {
-      name: 'login',
+      name: "login",
       query: {
         redirect: to.fullPath,
       },
-    }
+    };
   }
 
   // =========================
   // WAJIB ADMIN
   // =========================
 
-  if (
-    to.meta.requiresAdmin &&
-    !authStore.isAdmin
-  ) {
+  if (to.meta.requiresAdmin && !authStore.isAdmin) {
     return {
-      name: 'dashboard',
-    }
+      name: "dashboard",
+    };
   }
 
-  return true
-})
+  return true;
+});
 
-export default router
+export default router;
