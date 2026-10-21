@@ -74,7 +74,12 @@ const loadTransactions = async () => {
   errorMessage.value = "";
 
   try {
-    transactions.value = await getTransactions();
+    const data = await getTransactions();
+    // Pastikan tanggal selalu berformat YYYY-MM-DD agar filter akurat
+    transactions.value = data.map((t) => ({
+      ...t,
+      transaction_date: String(t.transaction_date).slice(0, 10),
+    }));
   } catch (error) {
     errorMessage.value =
       error instanceof Error
@@ -141,12 +146,34 @@ const periodLabel = computed(
   () => `${formatDate(period.value.start)} – ${formatDate(period.value.end)}`,
 );
 
+/** Transaksi yang tanggalnya jatuh di periode gajian ini */
 const periodTransactions = computed(() =>
   transactions.value.filter(
     (t) =>
       t.transaction_date >= period.value.start &&
       t.transaction_date <= period.value.end,
   ),
+);
+
+/**
+ * Saldo bawaan: hasil semua transaksi SEBELUM periode ini mulai.
+ * Termasuk sisa uang bulan lalu dan gaji yang dicatat lebih awal.
+ */
+const openingBalance = computed(() =>
+  transactions.value
+    .filter((t) => t.transaction_date < period.value.start)
+    .reduce(
+      (sum, t) =>
+        t.type === "income" ? sum + Number(t.amount) : sum - Number(t.amount),
+      0,
+    ),
+);
+
+/** Transaksi bertanggal setelah periode ini (tidak dihitung) */
+const upcomingCount = computed(
+  () =>
+    transactions.value.filter((t) => t.transaction_date > period.value.end)
+      .length,
 );
 
 const periodIncome = computed(() =>
@@ -161,9 +188,14 @@ const periodExpense = computed(() =>
     .reduce((sum, t) => sum + Number(t.amount), 0),
 );
 
-/** Sisa uang periode ini */
+/** Total dana yang tersedia di periode ini: saldo bawaan + uang masuk */
+const fundsThisPeriod = computed(
+  () => openingBalance.value + periodIncome.value,
+);
+
+/** Sisa uang yang bisa dipakai sampai gajian berikutnya */
 const remainingBudget = computed(
-  () => periodIncome.value - periodExpense.value,
+  () => fundsThisPeriod.value - periodExpense.value,
 );
 
 /** Batas pengeluaran per hari agar cukup sampai gajian */
@@ -181,9 +213,9 @@ const spentToday = computed(() =>
 
 /** Persentase dana yang sudah terpakai (untuk progress bar) */
 const usedPercent = computed(() => {
-  if (periodIncome.value <= 0) return periodExpense.value > 0 ? 100 : 0;
+  if (fundsThisPeriod.value <= 0) return periodExpense.value > 0 ? 100 : 0;
   return Math.min(
-    Math.round((periodExpense.value / periodIncome.value) * 100),
+    Math.round((periodExpense.value / fundsThisPeriod.value) * 100),
     100,
   );
 });
@@ -191,7 +223,7 @@ const usedPercent = computed(() => {
 const status = computed(() => {
   if (remainingBudget.value < 0)
     return { label: "Defisit", cls: "bg-red-400/20 text-red-100" };
-  if (periodIncome.value > 0 && usedPercent.value > 85)
+  if (fundsThisPeriod.value > 0 && usedPercent.value > 85)
     return { label: "Hampir habis", cls: "bg-amber-400/20 text-amber-100" };
   return { label: "Aman", cls: "bg-emerald-400/20 text-emerald-100" };
 });
@@ -224,7 +256,7 @@ const dayPoints = computed<DayPoint[]>(() => {
   }
 
   const points: DayPoint[] = [];
-  let running = 0;
+  let running = openingBalance.value;
 
   for (let i = 0; i < totalDays; i++) {
     const iso = toISO(
@@ -246,7 +278,7 @@ const dayPoints = computed<DayPoint[]>(() => {
       expense,
       balance: isFuture ? null : running,
       // jalur ideal: total pemasukan habis merata sampai hari terakhir
-      ideal: periodIncome.value * (1 - (i + 1) / totalDays),
+      ideal: Math.max(fundsThisPeriod.value, 0) * (1 - (i + 1) / totalDays),
       isFuture,
       isToday: iso === today,
     });
@@ -276,7 +308,7 @@ const yScale = computed(() => {
     d.balance ?? 0,
     d.ideal,
   ]);
-  const rawMax = Math.max(...values, periodIncome.value, 1);
+  const rawMax = Math.max(...values, fundsThisPeriod.value, 1);
   const rawMin = Math.min(...values, 0);
   const step = niceStep(rawMax - rawMin);
 
@@ -377,7 +409,7 @@ const tooltipStyle = computed(() => {
 });
 
 const hasChartData = computed(
-  () => periodIncome.value > 0 || periodExpense.value > 0,
+  () => fundsThisPeriod.value !== 0 || periodExpense.value > 0,
 );
 
 /* ------------------------------------------------------------------ */
@@ -385,12 +417,10 @@ const hasChartData = computed(
 /* ------------------------------------------------------------------ */
 const sortedTransactions = computed(() =>
   [...transactions.value].sort((a, b) => {
-    const dateA = new Date(
-      `${a.transaction_date}T${a.created_at.slice(11, 19)}`,
-    ).getTime();
-    const dateB = new Date(
-      `${b.transaction_date}T${b.created_at.slice(11, 19)}`,
-    ).getTime();
+    const timeA = String(a.created_at ?? "").slice(11, 19) || "00:00:00";
+    const timeB = String(b.created_at ?? "").slice(11, 19) || "00:00:00";
+    const dateA = new Date(`${a.transaction_date}T${timeA}`).getTime();
+    const dateB = new Date(`${b.transaction_date}T${timeB}`).getTime();
     return dateB - dateA;
   }),
 );
@@ -524,7 +554,7 @@ onMounted(() => {
           <div class="flex justify-between text-xs text-indigo-100">
             <span>Terpakai {{ formatRupiah(periodExpense) }}</span>
             <span
-              >{{ usedPercent }}% dari {{ formatRupiah(periodIncome) }}</span
+              >{{ usedPercent }}% dari {{ formatRupiah(fundsThisPeriod) }}</span
             >
           </div>
           <div class="mt-2 h-2 overflow-hidden rounded-full bg-white/20">
@@ -569,9 +599,27 @@ onMounted(() => {
         >
           Pengeluaran sudah melebihi pemasukan di periode ini.
         </p>
-        <p v-if="periodIncome === 0" class="mt-2 text-xs text-indigo-100">
-          Belum ada uang masuk di periode ini. Catat gaji dengan tanggal
-          {{ formatShortDate(period.start) }} atau sesudahnya.
+        <p
+          v-if="fundsThisPeriod <= 0 && upcomingCount > 0"
+          class="mt-2 text-xs text-amber-200"
+        >
+          Ada {{ upcomingCount }} transaksi bertanggal setelah
+          {{ formatDate(period.end) }}, jadi belum dihitung di periode ini. Cek
+          tanggal gaji yang kamu catat.
+        </p>
+        <p
+          v-else-if="fundsThisPeriod <= 0"
+          class="mt-2 text-xs text-indigo-100"
+        >
+          Belum ada dana di periode ini. Catat gaji sebagai uang masuk dengan
+          tanggal {{ formatDate(period.end) }} atau sebelumnya.
+        </p>
+        <p
+          v-if="period.daysLeft === 1 && fundsThisPeriod > 0"
+          class="mt-2 text-xs text-indigo-100"
+        >
+          Hari terakhir periode. Besok tanggal {{ PAYDAY }}, gajian baru
+          dimulai.
         </p>
       </section>
 
@@ -644,7 +692,7 @@ onMounted(() => {
             >
               <TrendingUp :size="21" />
             </div>
-            <p class="mt-5 text-sm text-slate-500">Selisih periode ini</p>
+            <p class="mt-5 text-sm text-slate-500">Sisa dana periode ini</p>
             <p
               class="mt-1 break-words text-2xl font-bold"
               :class="remainingBudget >= 0 ? 'text-blue-600' : 'text-red-600'"
