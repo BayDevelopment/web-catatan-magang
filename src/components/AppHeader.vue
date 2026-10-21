@@ -6,7 +6,6 @@ import {
   ChevronDown,
   Menu,
   UserRound,
-  LockKeyhole,
 } from "lucide-vue-next";
 import { useRouter } from "vue-router";
 import { useAuthStore } from "../stores/auth";
@@ -35,14 +34,6 @@ const openMobileSidebar = () => {
 const openProfile = async () => {
   dropdownOpen.value = false;
   await router.push("/profile");
-};
-
-const openPassword = async () => {
-  dropdownOpen.value = false;
-  await router.push({
-    path: "/profile",
-    query: { section: "password" },
-  });
 };
 
 const closeDropdown = (e: MouseEvent) => {
@@ -168,16 +159,6 @@ onUnmounted(() => {
               >
                 <UserRound :size="18" />
                 Profil Saya
-              </button>
-
-              <!-- Ubah Password -->
-              <button
-                type="button"
-                @click="openPassword"
-                class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-indigo-50 hover:text-indigo-700"
-              >
-                <LockKeyhole :size="18" />
-                Ubah Password
               </button>
 
               <div class="my-2 border-t border-slate-100" />

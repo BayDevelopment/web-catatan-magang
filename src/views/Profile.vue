@@ -174,7 +174,6 @@ const updatePassword = async () => {
   savingPassword.value = true;
 
   try {
-    // Verifikasi password saat ini sebelum menggantinya.
     const { error: verifyError } = await supabase.auth.signInWithPassword({
       email,
       password: currentPassword.value,
@@ -194,6 +193,10 @@ const updatePassword = async () => {
     newPassword.value = "";
     confirmPassword.value = "";
 
+    showCurrentPassword.value = false;
+    showNewPassword.value = false;
+    showConfirmPassword.value = false;
+
     passwordSuccessMessage.value = "Password berhasil diperbarui.";
   } catch (error) {
     passwordErrorMessage.value =
@@ -209,20 +212,24 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="mx-auto max-w-5xl space-y-6">
+  <div
+    class="mx-auto mt-5 w-full max-w-5xl space-y-5 px-4 pb-8 sm:mt-7 sm:space-y-6 sm:px-6 lg:mt-8 lg:px-8"
+  >
     <!-- Header -->
-    <div class="flex items-center gap-3">
+    <div class="flex min-w-0 items-center gap-3 sm:gap-4">
       <RouterLink
         to="/dashboard"
-        class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50"
+        class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 hover:text-indigo-600"
         aria-label="Kembali ke dashboard"
       >
         <ArrowLeft :size="18" />
       </RouterLink>
 
-      <div>
-        <h1 class="text-2xl font-bold text-slate-900">Profil Saya</h1>
-        <p class="mt-1 text-sm text-slate-500">
+      <div class="min-w-0 flex-1">
+        <h1 class="text-xl font-bold leading-tight text-slate-900 sm:text-2xl">
+          Profil Saya
+        </h1>
+        <p class="mt-1 text-sm leading-relaxed text-slate-500">
           Kelola informasi akun dan keamanan password.
         </p>
       </div>
@@ -231,25 +238,27 @@ onMounted(() => {
     <!-- Alerts -->
     <div
       v-if="errorMessage"
-      class="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+      class="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 sm:p-4"
       role="alert"
     >
       <AlertCircle :size="18" class="mt-0.5 shrink-0" />
-      {{ errorMessage }}
+      <span class="min-w-0 break-words">{{ errorMessage }}</span>
     </div>
 
     <div
       v-if="successMessage"
-      class="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700"
+      class="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 sm:p-4"
       role="status"
     >
       <CheckCircle2 :size="18" class="mt-0.5 shrink-0" />
-      {{ successMessage }}
+      <span class="min-w-0 break-words">{{ successMessage }}</span>
     </div>
 
-    <div v-if="loading" class="animate-pulse space-y-4">
-      <div class="h-40 rounded-2xl bg-slate-200"></div>
-      <div class="h-72 rounded-2xl bg-slate-200"></div>
+    <!-- Loading -->
+    <div v-if="loading" class="animate-pulse space-y-5 sm:space-y-6">
+      <div class="h-44 rounded-2xl bg-slate-200 sm:h-48"></div>
+      <div class="h-80 rounded-2xl bg-slate-200"></div>
+      <div class="h-96 rounded-2xl bg-slate-200"></div>
     </div>
 
     <template v-else>
@@ -258,19 +267,23 @@ onMounted(() => {
         class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
       >
         <div
-          class="h-28 bg-gradient-to-r from-indigo-600 via-indigo-600 to-purple-600"
+          class="h-24 bg-gradient-to-r from-indigo-600 via-indigo-600 to-purple-600 sm:h-28"
         ></div>
 
-        <div class="px-5 pb-6 sm:px-7">
-          <div class="-mt-11 flex flex-col gap-4 sm:flex-row sm:items-end">
+        <div class="px-4 pb-5 sm:px-7 sm:pb-6">
+          <div
+            class="-mt-10 flex min-w-0 flex-col gap-4 sm:-mt-11 sm:flex-row sm:items-end"
+          >
             <div
-              class="flex h-24 w-24 items-center justify-center rounded-2xl border-4 border-white bg-indigo-100 text-3xl font-bold text-indigo-700 shadow-sm"
+              class="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border-4 border-white bg-indigo-100 text-2xl font-bold text-indigo-700 shadow-sm sm:h-24 sm:w-24 sm:text-3xl"
             >
               {{ initials }}
             </div>
 
             <div class="min-w-0 flex-1 pb-1">
-              <h2 class="break-words text-xl font-bold text-slate-900">
+              <h2
+                class="break-words text-lg font-bold text-slate-900 sm:text-xl"
+              >
                 {{ fullName || "Nama belum diatur" }}
               </h2>
               <p class="mt-1 break-all text-sm text-slate-500">
@@ -279,7 +292,7 @@ onMounted(() => {
             </div>
 
             <span
-              class="inline-flex w-fit items-center gap-2 rounded-full bg-indigo-50 px-3 py-1.5 text-xs font-semibold capitalize text-indigo-700"
+              class="inline-flex w-fit max-w-full items-center gap-2 rounded-full bg-indigo-50 px-3 py-1.5 text-xs font-semibold capitalize text-indigo-700"
             >
               <ShieldCheck :size="15" />
               {{ profile?.role ?? "user" }}
@@ -290,16 +303,17 @@ onMounted(() => {
 
       <!-- Edit profile -->
       <section
-        class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7"
+        class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6 lg:p-7"
       >
-        <div class="mb-6">
+        <div class="mb-5 sm:mb-6">
           <h2 class="text-lg font-bold text-slate-900">Informasi Profil</h2>
-          <p class="mt-1 text-sm text-slate-500">
+          <p class="mt-1 text-sm leading-relaxed text-slate-500">
             Perbarui nama yang ditampilkan di akun kamu.
           </p>
         </div>
 
         <form class="space-y-5" @submit.prevent="saveProfile">
+          <!-- Full name -->
           <div>
             <label
               for="full_name"
@@ -321,11 +335,12 @@ onMounted(() => {
                 autocomplete="name"
                 required
                 placeholder="Masukkan nama lengkap"
-                class="w-full rounded-xl border border-slate-200 bg-white py-3 pl-10 pr-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
+                class="w-full min-w-0 rounded-xl border border-slate-200 bg-white py-3 pl-10 pr-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
               />
             </div>
           </div>
 
+          <!-- Email -->
           <div>
             <label
               for="email"
@@ -344,41 +359,48 @@ onMounted(() => {
                 :value="userEmail"
                 type="email"
                 readonly
-                class="w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-sm text-slate-500 outline-none"
+                class="w-full min-w-0 cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-sm text-slate-500 outline-none"
               />
             </div>
-            <p class="mt-1.5 text-xs text-slate-400">
+
+            <p class="mt-1.5 text-xs leading-relaxed text-slate-400">
               Email akun tidak diubah melalui halaman ini.
             </p>
           </div>
 
-          <div class="grid gap-4 sm:grid-cols-2">
-            <div>
+          <!-- Account information -->
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div class="min-w-0">
               <p class="mb-2 text-sm font-medium text-slate-700">Role akun</p>
               <div
-                class="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm capitalize text-slate-600"
+                class="flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm capitalize text-slate-600"
               >
-                <ShieldCheck :size="17" />
-                {{ profile?.role ?? "user" }}
+                <ShieldCheck :size="17" class="shrink-0" />
+                <span class="break-words">
+                  {{ profile?.role ?? "user" }}
+                </span>
               </div>
             </div>
 
-            <div>
+            <div class="min-w-0">
               <p class="mb-2 text-sm font-medium text-slate-700">Akun dibuat</p>
               <div
-                class="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"
+                class="flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"
               >
-                <CalendarDays :size="17" />
-                {{ formattedCreatedAt }}
+                <CalendarDays :size="17" class="shrink-0" />
+                <span class="break-words">{{ formattedCreatedAt }}</span>
               </div>
             </div>
           </div>
 
-          <div class="flex justify-end border-t border-slate-100 pt-5">
+          <!-- Save profile -->
+          <div
+            class="flex justify-stretch border-t border-slate-100 pt-5 sm:justify-end"
+          >
             <button
               type="submit"
               :disabled="savingProfile || !profile"
-              class="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+              class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
             >
               <LoaderCircle
                 v-if="savingProfile"
@@ -394,42 +416,46 @@ onMounted(() => {
 
       <!-- Change password -->
       <section
-        class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7"
+        class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6 lg:p-7"
       >
-        <div class="mb-6 flex items-start gap-3">
+        <div class="mb-5 flex items-start gap-3 sm:mb-6">
           <div
-            class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600"
+            class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600 sm:h-11 sm:w-11"
           >
             <LockKeyhole :size="21" />
           </div>
-          <div>
+
+          <div class="min-w-0 flex-1">
             <h2 class="text-lg font-bold text-slate-900">Ubah Password</h2>
-            <p class="mt-1 text-sm text-slate-500">
+            <p class="mt-1 text-sm leading-relaxed text-slate-500">
               Gunakan password yang kuat dan jangan membagikannya kepada orang
               lain.
             </p>
           </div>
         </div>
 
+        <!-- Password error -->
         <div
           v-if="passwordErrorMessage"
-          class="mb-5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+          class="mb-5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 sm:p-4"
           role="alert"
         >
           <AlertCircle :size="18" class="mt-0.5 shrink-0" />
-          {{ passwordErrorMessage }}
+          <span class="min-w-0 break-words">{{ passwordErrorMessage }}</span>
         </div>
 
+        <!-- Password success -->
         <div
           v-if="passwordSuccessMessage"
-          class="mb-5 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700"
+          class="mb-5 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 sm:p-4"
           role="status"
         >
           <CheckCircle2 :size="18" class="mt-0.5 shrink-0" />
-          {{ passwordSuccessMessage }}
+          <span class="min-w-0 break-words">{{ passwordSuccessMessage }}</span>
         </div>
 
         <form class="space-y-5" @submit.prevent="updatePassword">
+          <!-- Current password -->
           <div>
             <label
               for="current_password"
@@ -446,11 +472,11 @@ onMounted(() => {
                 autocomplete="current-password"
                 required
                 placeholder="Masukkan password saat ini"
-                class="w-full rounded-xl border border-slate-200 bg-white py-3 pl-4 pr-12 text-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
+                class="w-full min-w-0 rounded-xl border border-slate-200 bg-white py-3 pl-4 pr-12 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
               />
               <button
                 type="button"
-                class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-700"
                 :aria-label="
                   showCurrentPassword
                     ? 'Sembunyikan password'
@@ -464,6 +490,7 @@ onMounted(() => {
             </div>
           </div>
 
+          <!-- New password -->
           <div>
             <label
               for="new_password"
@@ -481,11 +508,11 @@ onMounted(() => {
                 minlength="8"
                 required
                 placeholder="Minimal 8 karakter"
-                class="w-full rounded-xl border border-slate-200 bg-white py-3 pl-4 pr-12 text-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
+                class="w-full min-w-0 rounded-xl border border-slate-200 bg-white py-3 pl-4 pr-12 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
               />
               <button
                 type="button"
-                class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-700"
                 :aria-label="
                   showNewPassword
                     ? 'Sembunyikan password'
@@ -497,11 +524,13 @@ onMounted(() => {
                 <Eye v-else :size="18" />
               </button>
             </div>
-            <p class="mt-1.5 text-xs text-slate-400">
-              Gunakan kombinasi huruf, angka, dan simbol.
+
+            <p class="mt-1.5 text-xs leading-relaxed text-slate-400">
+              Minimal 8 karakter. Gunakan kombinasi huruf, angka, dan simbol.
             </p>
           </div>
 
+          <!-- Confirm password -->
           <div>
             <label
               for="confirm_password"
@@ -519,11 +548,11 @@ onMounted(() => {
                 minlength="8"
                 required
                 placeholder="Ulangi password baru"
-                class="w-full rounded-xl border border-slate-200 bg-white py-3 pl-4 pr-12 text-sm outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
+                class="w-full min-w-0 rounded-xl border border-slate-200 bg-white py-3 pl-4 pr-12 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
               />
               <button
                 type="button"
-                class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-700"
                 :aria-label="
                   showConfirmPassword
                     ? 'Sembunyikan password'
@@ -537,11 +566,14 @@ onMounted(() => {
             </div>
           </div>
 
-          <div class="flex justify-end border-t border-slate-100 pt-5">
+          <!-- Update password -->
+          <div
+            class="flex justify-stretch border-t border-slate-100 pt-5 sm:justify-end"
+          >
             <button
               type="submit"
               :disabled="savingPassword"
-              class="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
             >
               <LoaderCircle
                 v-if="savingPassword"
