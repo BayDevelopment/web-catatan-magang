@@ -23,7 +23,7 @@ const PAYDAY = 22; // tanggal gajian
 const PER_PAGE = 10; // transaksi per halaman
 const MS_DAY = 1000 * 60 * 60 * 24;
 
-type Mode = "gajian" | "month" | "day" | "range";
+type Mode = "gajian" | "month" | "day" | "range" | "all";
 type TypeFilter = "all" | "income" | "expense";
 
 const modes: { value: Mode; label: string }[] = [
@@ -31,6 +31,7 @@ const modes: { value: Mode; label: string }[] = [
   { value: "month", label: "Bulanan" },
   { value: "day", label: "Harian" },
   { value: "range", label: "Rentang tanggal" },
+  { value: "all", label: "Semua waktu" },
 ];
 
 const typeOptions: { value: TypeFilter; label: string }[] = [
@@ -154,7 +155,12 @@ const loadTransactions = async () => {
   errorMessage.value = "";
 
   try {
-    transactions.value = await getTransactions();
+    const data = await getTransactions();
+    // Pastikan tanggal selalu berformat YYYY-MM-DD agar filter akurat
+    transactions.value = data.map((t) => ({
+      ...t,
+      transaction_date: String(t.transaction_date).slice(0, 10),
+    }));
   } catch (error) {
     errorMessage.value =
       error instanceof Error
@@ -184,6 +190,13 @@ const range = computed(() => {
         from: `${selectedMonth.value}-01`,
         to: `${selectedMonth.value}-${String(last).padStart(2, "0")}`,
       };
+    }
+    case "all": {
+      if (transactions.value.length === 0) {
+        return { from: todayISO, to: todayISO };
+      }
+      const dates = transactions.value.map((t) => t.transaction_date).sort();
+      return { from: dates[0]!, to: dates[dates.length - 1]! };
     }
     case "day":
       return { from: selectedDay.value, to: selectedDay.value };
@@ -625,7 +638,7 @@ onMounted(() => {
             />
           </div>
 
-          <template v-else>
+          <template v-else-if="mode === 'range'">
             <div>
               <label
                 for="f-from"
