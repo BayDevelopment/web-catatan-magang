@@ -23,7 +23,6 @@ const PAYDAY = 21;
 const PER_PAGE = 5;
 const MS_DAY = 24 * 60 * 60 * 1000;
 const ROUNDING_UNIT = 1000;
-const EARLY_PAY_DAYS = 7;
 
 const FIXED_KEYWORDS = [
   "kos",
@@ -123,9 +122,6 @@ const startOfDay = (date: Date) =>
 
 const addDays = (date: Date, days: number) =>
   new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
-
-const addMonthsOnPayday = (date: Date, months: number) =>
-  new Date(date.getFullYear(), date.getMonth() + months, PAYDAY);
 
 const differenceInDays = (from: Date, to: Date) =>
   Math.round((startOfDay(to).getTime() - startOfDay(from).getTime()) / MS_DAY);
