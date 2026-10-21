@@ -24,23 +24,11 @@ const PER_PAGE = 5;
 const MS_DAY = 24 * 60 * 60 * 1000;
 const ROUNDING_UNIT = 1000;
 
-const FIXED_KEYWORDS = [
-  "kos",
-  "sewa",
-  "bensin",
-  "cicilan",
-  "tagihan",
-  "listrik",
-  "air",
-  "internet",
-];
+const FIXED_DESCRIPTION_PATTERN =
+  /\b(kos|sewa|kontrakan|cicilan|tagihan|listrik|internet|bensin|air rumah|air bulanan)\b/i;
 
 const SALARY_KEYWORDS = ["gaji", "salary", "payroll"];
 
-/**
- * Mendukung flag opsional meskipun interface Transaction
- * belum mempunyai is_salary dan is_fixed.
- */
 type TransactionWithFlags = Transaction & {
   is_salary?: boolean | null;
   is_fixed?: boolean | null;
@@ -102,8 +90,7 @@ const normalizeDate = (value: unknown): string => {
     return text;
   }
 
-  // Tanggal database tanpa zona waktu dipertahankan
-  // agar tidak bergeser ke hari sebelumnya.
+  // Pertahankan tanggal dari database agar hari tidak bergeser.
   if (/^\d{4}-\d{2}-\d{2}[T ]/.test(text)) {
     return text.slice(0, 10);
   }
@@ -141,13 +128,8 @@ const isSalary = (transaction: TransactionWithFlags) => {
     return false;
   }
 
-  if (transaction.is_salary === true) {
-    return true;
-  }
-
-  if (transaction.is_salary === false) {
-    return false;
-  }
+  if (transaction.is_salary === true) return true;
+  if (transaction.is_salary === false) return false;
 
   const text = `${transaction.category ?? ""} ${transaction.description ?? ""}`
     .toLowerCase()
@@ -161,19 +143,19 @@ const isFixedExpense = (transaction: TransactionWithFlags) => {
     return false;
   }
 
-  if (transaction.is_fixed === true) {
-    return true;
-  }
+  // Flag eksplisit dari database menjadi prioritas utama.
+  if (transaction.is_fixed === true) return true;
+  if (transaction.is_fixed === false) return false;
 
-  if (transaction.is_fixed === false) {
-    return false;
-  }
+  const category = String(transaction.category ?? "").trim();
+  const description = String(transaction.description ?? "").trim();
 
-  const text = `${transaction.category ?? ""} ${transaction.description ?? ""}`
-    .toLowerCase()
-    .trim();
-
-  return FIXED_KEYWORDS.some((keyword) => text.includes(keyword));
+  // Deteksi berdasarkan kategori maupun keterangan.
+  return (
+    /\b(biaya tetap|tagihan)\b/i.test(category) ||
+    FIXED_DESCRIPTION_PATTERN.test(category) ||
+    FIXED_DESCRIPTION_PATTERN.test(description)
+  );
 };
 
 /* ------------------------------------------------------------------ */
@@ -196,7 +178,7 @@ const loadTransactions = async () => {
       .filter((transaction) => transaction.transaction_date !== "");
 
     now.value = new Date();
-    currentPage.value = 1;
+    currentPage.value = Math.min(currentPage.value, totalPages.value);
   } catch (error) {
     errorMessage.value =
       error instanceof Error
@@ -223,39 +205,40 @@ const balance = computed(() =>
 );
 
 /* ------------------------------------------------------------------ */
-/* Periode gajian                                                       */
+/* Periode gajian: tanggal 21 sampai tanggal 20                         */
 /* ------------------------------------------------------------------ */
 
 const period = computed(() => {
   const today = startOfDay(now.value);
   const todayISO = toISO(today);
 
-  // Periode dimulai setiap tanggal 21.
   const start =
     today.getDate() >= PAYDAY
       ? new Date(today.getFullYear(), today.getMonth(), PAYDAY)
       : new Date(today.getFullYear(), today.getMonth() - 1, PAYDAY);
 
-  // Periode berikutnya dimulai tanggal 21 bulan berikutnya.
   const nextPayday = new Date(
     start.getFullYear(),
     start.getMonth() + 1,
     PAYDAY,
   );
 
-  // Periode berjalan berakhir tanggal 20.
   const end = addDays(nextPayday, -1);
 
   const salaryTransactions = transactions.value
     .filter(isSalary)
-    .filter((transaction) => transaction.transaction_date <= todayISO)
+    .filter(
+      (transaction) =>
+        transaction.transaction_date >= toISO(start) &&
+        transaction.transaction_date <= todayISO,
+    )
     .sort((a, b) => a.transaction_date.localeCompare(b.transaction_date));
 
-  // Hanya tampilkan acuan gaji apabila transaksi gaji
-  // tercatat pada awal periode yang sedang berjalan.
-  const salaryAtPeriodStart = salaryTransactions.find(
-    (transaction) => transaction.transaction_date === toISO(start),
-  );
+  // Gunakan tanggal gaji terakhir yang tercatat dalam periode aktif.
+  const salaryAtPeriodStart =
+    salaryTransactions.length > 0
+      ? salaryTransactions[salaryTransactions.length - 1]
+      : undefined;
 
   const totalDays = differenceInDays(start, nextPayday);
   const dayIndex = differenceInDays(start, today);
@@ -290,6 +273,7 @@ const periodTransactions = computed(() =>
   ),
 );
 
+// Saldo bersih dari seluruh transaksi sebelum periode aktif.
 const openingBalance = computed(() =>
   transactions.value
     .filter((transaction) => transaction.transaction_date < period.value.start)
@@ -326,27 +310,24 @@ const periodExpense = computed(() =>
 /* Perhitungan anggaran                                                 */
 /* ------------------------------------------------------------------ */
 
-/**
- * Dana periode terdiri dari saldo sebelumnya dan pemasukan
- * pada periode aktif.
- */
+// Saldo sebelumnya ditambah pemasukan selama periode aktif.
 const fundsThisPeriod = computed(
   () => openingBalance.value + periodIncome.value,
 );
 
-/** Sisa bersih setelah semua pengeluaran periode aktif. */
+// Sisa dana bersih setelah seluruh pengeluaran dalam periode.
 const remainingBudget = computed(
   () => fundsThisPeriod.value - periodExpense.value,
 );
 
-/** Biaya tetap yang dicatat dalam periode aktif. */
+// Total biaya tetap dalam periode aktif.
 const fixedExpenseTotal = computed(() =>
   periodTransactions.value
     .filter(isFixedExpense)
     .reduce((total, transaction) => total + amountOf(transaction), 0),
 );
 
-/** Pengeluaran variabel adalah pengeluaran selain biaya tetap. */
+// Pengeluaran variabel, tidak termasuk biaya tetap.
 const variableExpenses = computed(() =>
   periodTransactions.value.filter(
     (transaction) =>
@@ -354,14 +335,14 @@ const variableExpenses = computed(() =>
   ),
 );
 
-/** Pengeluaran variabel sebelum hari ini. */
+// Pengeluaran variabel sebelum hari ini.
 const variableSpentBeforeToday = computed(() =>
   variableExpenses.value
     .filter((transaction) => transaction.transaction_date < period.value.today)
     .reduce((total, transaction) => total + amountOf(transaction), 0),
 );
 
-/** Pengeluaran variabel hari ini. */
+// Pengeluaran variabel hari ini.
 const spentToday = computed(() =>
   variableExpenses.value
     .filter(
@@ -370,11 +351,7 @@ const spentToday = computed(() =>
     .reduce((total, transaction) => total + amountOf(transaction), 0),
 );
 
-/**
- * Pool untuk perhitungan jatah harian.
- * Pengeluaran hari ini belum dikurangi di sini karena
- * akan dikurangkan pada todayLeft.
- */
+// Dana jajan setelah biaya tetap dan pengeluaran variabel sebelumnya.
 const poolForDaily = computed(
   () =>
     fundsThisPeriod.value -
@@ -382,16 +359,12 @@ const poolForDaily = computed(
     variableSpentBeforeToday.value,
 );
 
-/** Sisa pool setelah pengeluaran variabel hari ini. */
+// Sisa dana jajan setelah pengeluaran hari ini.
 const remainingDailyPool = computed(
   () => poolForDaily.value - spentToday.value,
 );
 
-/**
- * Jatah harian dibagi rata berdasarkan sisa hari hingga
- * tanggal gajian berikutnya, termasuk hari ini.
- * Hasil dibulatkan ke bawah ke kelipatan Rp1.000.
- */
+// Jatah maksimal pengeluaran variabel per hari, termasuk hari ini.
 const dailyBudget = computed(() => {
   const pool = poolForDaily.value;
   const daysLeft = period.value.daysLeft;
@@ -403,10 +376,22 @@ const dailyBudget = computed(() => {
   return Math.floor(pool / daysLeft / ROUNDING_UNIT) * ROUNDING_UNIT;
 });
 
-/** Sisa atau kelebihan jatah hari ini. */
+// Sisa atau kelebihan jatah hari ini.
 const todayLeft = computed(() => dailyBudget.value - spentToday.value);
 
-/** Persentase pengeluaran dari dana periode. */
+// Perkiraan jatah rata-rata untuk setiap hari mulai besok.
+const dailyBudgetTomorrow = computed(() => {
+  const daysRemaining = period.value.daysLeft - 1;
+  const remaining = remainingDailyPool.value;
+
+  if (daysRemaining <= 0 || remaining <= 0) {
+    return 0;
+  }
+
+  return Math.floor(remaining / daysRemaining / ROUNDING_UNIT) * ROUNDING_UNIT;
+});
+
+// Persentase pengeluaran terhadap dana periode.
 const usedPercent = computed(() => {
   if (fundsThisPeriod.value <= 0) {
     return periodExpense.value > 0 ? 100 : 0;
@@ -418,7 +403,7 @@ const usedPercent = computed(() => {
   );
 });
 
-/** Status kondisi anggaran. */
+// Status anggaran.
 const status = computed(() => {
   if (remainingBudget.value < 0) {
     return {
@@ -427,7 +412,7 @@ const status = computed(() => {
     };
   }
 
-  if (remainingDailyPool.value < 0) {
+  if (poolForDaily.value < 0) {
     return {
       label: "Dana tidak cukup",
       cls: "bg-amber-400/20 text-amber-100",
@@ -515,6 +500,7 @@ const dayPoints = computed<DayPoint[]>(() => {
 
 const W = 760;
 const H = 300;
+
 const PAD = {
   top: 16,
   right: 16,
@@ -543,7 +529,6 @@ const yScale = computed(() => {
   ]);
 
   const rawMax = Math.max(...values, fundsThisPeriod.value, 1);
-
   const rawMin = Math.min(...values, 0);
   const step = niceStep(rawMax - rawMin);
   const max = Math.ceil(rawMax / step) * step;
@@ -571,14 +556,19 @@ const xCenter = (index: number) => PAD.left + band.value * (index + 0.5);
 
 const barWidth = computed(() => Math.max(Math.min(band.value * 0.6, 18), 3));
 
-const balanceLine = computed(() =>
-  dayPoints.value
-    .map((day, index) =>
-      day.balance === null ? null : `${xCenter(index)},${yPos(day.balance)}`,
-    )
-    .filter((point): point is string => point !== null)
-    .join(" "),
-);
+// Garis saldo hanya menampilkan titik hingga hari ini.
+// Hari mendatang tidak disambungkan sebagai prediksi saldo.
+const balanceLine = computed(() => {
+  const points: string[] = [];
+
+  dayPoints.value.forEach((day, index) => {
+    if (day.balance !== null) {
+      points.push(`${xCenter(index)},${yPos(day.balance)}`);
+    }
+  });
+
+  return points.join(" ");
+});
 
 const balanceArea = computed(() => {
   const points = dayPoints.value
@@ -657,7 +647,6 @@ const tooltipStyle = computed(() => {
   }
 
   const leftPercent = (xCenter(hoverIndex.value) / W) * 100;
-
   const flip = leftPercent > 62;
 
   return {
@@ -700,7 +689,6 @@ const rangeText = computed(() => {
   }
 
   const from = (currentPage.value - 1) * PER_PAGE + 1;
-
   const to = Math.min(currentPage.value * PER_PAGE, total);
 
   return `${from}–${to} dari ${total} transaksi`;
@@ -751,20 +739,19 @@ watch(totalPages, (total) => {
 /* Lifecycle                                                            */
 /* ------------------------------------------------------------------ */
 
-let initialLoadDone = false;
+let hasBeenActivated = false;
 
 onMounted(() => {
-  initialLoadDone = true;
   void loadTransactions();
 });
 
 onActivated(() => {
-  // onActivated hanya diperlukan ketika halaman menggunakan KeepAlive.
-  // Hindari pemanggilan ganda saat pertama kali mounted.
-  if (initialLoadDone) {
+  // Hindari load ganda saat pertama kali halaman dibuka.
+  // Muat ulang ketika halaman KeepAlive diaktifkan kembali.
+  if (hasBeenActivated) {
     void loadTransactions();
   } else {
-    initialLoadDone = true;
+    hasBeenActivated = true;
   }
 });
 </script>
@@ -855,9 +842,9 @@ onActivated(() => {
         <div class="mt-6">
           <div class="flex justify-between text-xs text-indigo-100">
             <span>Terpakai {{ formatRupiah(periodExpense) }}</span>
-            <span
-              >{{ usedPercent }}% dari {{ formatRupiah(fundsThisPeriod) }}</span
-            >
+            <span>
+              {{ usedPercent }}% dari {{ formatRupiah(fundsThisPeriod) }}
+            </span>
           </div>
           <div class="mt-2 h-2 overflow-hidden rounded-full bg-white/20">
             <div
@@ -876,20 +863,23 @@ onActivated(() => {
               {{ formatRupiah(fundsThisPeriod) }}
             </p>
           </div>
+
           <div>
             <p class="text-xs text-indigo-200">
-              Biaya tetap (kos, bensin, dll)
+              Biaya tetap (kos, bensin, tagihan, dll)
             </p>
             <p class="mt-1 text-lg font-bold">
               − {{ formatRupiah(fixedExpenseTotal) }}
             </p>
           </div>
+
           <div>
             <p class="text-xs text-indigo-200">Sisa dana jajan</p>
             <p class="mt-1 text-lg font-bold">
               {{ formatRupiah(remainingDailyPool) }}
             </p>
           </div>
+
           <div>
             <p class="text-xs text-indigo-200">Dibagi sisa hari</p>
             <p class="mt-1 text-lg font-bold">
@@ -903,18 +893,27 @@ onActivated(() => {
 
         <!-- Hari ini -->
         <div class="mt-5 rounded-xl bg-white/10 px-4 py-3 text-sm">
-          Hari ini terpakai
-          <span class="font-semibold">{{ formatRupiah(spentToday) }}</span>
-          dari jatah
-          <span class="font-semibold">{{ formatRupiah(dailyBudget) }}</span
-          >,
-          <span
-            class="font-semibold"
-            :class="todayLeft >= 0 ? 'text-emerald-200' : 'text-amber-200'"
-          >
-            {{ todayLeft >= 0 ? "sisa" : "lebih" }}
-            {{ formatRupiah(Math.abs(todayLeft)) }}
-          </span>
+          <p>
+            Hari ini terpakai
+            <span class="font-semibold">{{ formatRupiah(spentToday) }}</span>
+            dari jatah
+            <span class="font-semibold">{{ formatRupiah(dailyBudget) }}</span
+            >,
+            <span
+              class="font-semibold"
+              :class="todayLeft >= 0 ? 'text-emerald-200' : 'text-amber-200'"
+            >
+              {{ todayLeft >= 0 ? "sisa" : "lebih" }}
+              {{ formatRupiah(Math.abs(todayLeft)) }}
+            </span>
+          </p>
+
+          <p class="mt-2 text-xs text-indigo-100">
+            Rata-rata jatah mulai besok:
+            <span class="font-semibold text-white">
+              {{ formatRupiah(dailyBudgetTomorrow) }}/hari
+            </span>
+          </p>
         </div>
 
         <p
@@ -923,18 +922,21 @@ onActivated(() => {
         >
           Pengeluaran harian hari ini melebihi jatah.
         </p>
+
         <p
           v-if="poolForDaily < 0"
           class="mt-2 text-xs font-semibold text-amber-200"
         >
           Dana belum cukup menutup biaya tetap dan pengeluaran sebelumnya.
         </p>
+
         <p
           v-if="remainingBudget < 0"
           class="mt-2 text-xs font-semibold text-amber-200"
         >
           Pengeluaran sudah melebihi pemasukan di periode ini.
         </p>
+
         <p
           v-if="fundsThisPeriod <= 0 && upcomingCount > 0"
           class="mt-2 text-xs text-amber-200"
@@ -943,6 +945,7 @@ onActivated(() => {
           {{ formatDate(period.end) }}, jadi belum dihitung di periode ini. Cek
           tanggal gaji yang kamu catat.
         </p>
+
         <p
           v-else-if="fundsThisPeriod <= 0"
           class="mt-2 text-xs text-indigo-100"
@@ -950,6 +953,7 @@ onActivated(() => {
           Belum ada dana di periode ini. Catat gaji sebagai uang masuk dengan
           tanggal {{ formatDate(period.end) }} atau sebelumnya.
         </p>
+
         <p
           v-if="period.daysLeft === 1 && fundsThisPeriod > 0"
           class="mt-2 text-xs text-indigo-100"

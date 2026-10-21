@@ -6,119 +6,172 @@ import {
   ArrowUpFromLine,
   X,
   RefreshCw,
-} from 'lucide-vue-next'
+} from "lucide-vue-next";
 
-import { ref, computed, onMounted } from 'vue'
-import DashboardLayout from '../layouts/DashboardLayout.vue'
-import { getTransactions, createTransaction, deleteTransaction } from '../services/transaction.service'
-import type { Transaction } from '../types/transaction'
+import { ref, computed, onMounted } from "vue";
+import DashboardLayout from "../layouts/DashboardLayout.vue";
+import {
+  getTransactions,
+  createTransaction,
+  deleteTransaction,
+} from "../services/transaction.service";
+import type { Transaction } from "../types/transaction";
 
-const transactions = ref<Transaction[]>([])
-const loading = ref(true)
-const errorMessage = ref('')
+const transactions = ref<Transaction[]>([]);
+const loading = ref(true);
+const errorMessage = ref("");
 
-const showForm = ref(false)
-const search = ref('')
+const showForm = ref(false);
+const search = ref("");
 
-const description = ref('')
-const category = ref('Makanan')
-const amount = ref<number | null>(null)
-const date = ref(new Date().toISOString().slice(0, 10))
-const submitting = ref(false)
+const description = ref("");
+const category = ref("Makanan");
+const amount = ref<number | null>(null);
+const date = ref(new Date().toLocaleDateString("en-CA"));
+const submitting = ref(false);
+
+const categories = [
+  "Makanan",
+  "Transportasi",
+  "Belanja",
+  "Tagihan",
+  "Biaya Tetap",
+  "Hiburan",
+  "Kesehatan",
+  "Pendidikan",
+  "Lainnya",
+];
 
 const formatRupiah = (value: number) => {
-  return new Intl.NumberFormat('id-ID', {
-    style: 'currency',
-    currency: 'IDR',
+  return new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
     maximumFractionDigits: 0,
-  }).format(value)
-}
+  }).format(Number.isFinite(value) ? value : 0);
+};
 
 const formatDate = (dateString: string) => {
-  return new Intl.DateTimeFormat('id-ID', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  }).format(new Date(`${dateString}T00:00:00`))
-}
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(`${dateString}T00:00:00`));
+};
 
 const loadExpenses = async () => {
-  loading.value = true
-  errorMessage.value = ''
+  loading.value = true;
+  errorMessage.value = "";
 
   try {
-    const data = await getTransactions()
-    transactions.value = data.filter((t) => t.type === 'expense')
+    const data = await getTransactions();
+
+    transactions.value = data.filter(
+      (transaction) => transaction.type === "expense",
+    );
   } catch (error) {
     errorMessage.value =
-      error instanceof Error ? error.message : 'Gagal mengambil data pengeluaran.'
+      error instanceof Error
+        ? error.message
+        : "Gagal mengambil data pengeluaran.";
   } finally {
-    loading.value = false
+    loading.value = false;
   }
-}
+};
 
 const filteredExpenses = computed(() => {
-  return transactions.value.filter((item) =>
-    item.description.toLowerCase().includes(search.value.toLowerCase())
-  )
-})
+  const keyword = search.value.trim().toLowerCase();
+
+  return transactions.value.filter((item) => {
+    const descriptionText = String(item.description ?? "").toLowerCase();
+    const categoryText = String(item.category ?? "").toLowerCase();
+
+    return descriptionText.includes(keyword) || categoryText.includes(keyword);
+  });
+});
 
 const totalExpense = computed(() => {
-  return transactions.value.reduce(
-    (total, item) => total + Number(item.amount),
-    0
-  )
-})
+  return transactions.value.reduce((total, item) => {
+    const nominal = Number(item.amount);
+    return total + (Number.isFinite(nominal) ? nominal : 0);
+  }, 0);
+});
+
+const resetForm = () => {
+  description.value = "";
+  category.value = "Makanan";
+  amount.value = null;
+  date.value = new Date().toLocaleDateString("en-CA");
+};
 
 const saveExpense = async () => {
-  if (!description.value || !amount.value || amount.value <= 0) {
-    alert('Mohon isi keterangan dan nominal dengan benar.')
-    return
+  const cleanDescription = description.value.trim();
+  const nominal = Number(amount.value);
+
+  if (
+    !cleanDescription ||
+    amount.value === null ||
+    !Number.isFinite(nominal) ||
+    nominal <= 0
+  ) {
+    alert("Mohon isi keterangan dan nominal dengan benar.");
+    return;
   }
 
-  submitting.value = true
+  if (!date.value) {
+    alert("Mohon pilih tanggal pengeluaran.");
+    return;
+  }
+
+  submitting.value = true;
+  errorMessage.value = "";
+
   try {
-    // DISESUAIKAN: Menerima (type, formData) sesuai signature service Anda
-    await createTransaction('expense', {
-      description: description.value,
+    await createTransaction("expense", {
+      description: cleanDescription,
       category: category.value,
-      amount: amount.value,
+      amount: nominal,
       transaction_date: date.value,
-    })
+    });
 
-    // Reset form & tutup modal
-    description.value = ''
-    amount.value = null
-    category.value = 'Makanan'
-    showForm.value = false
+    resetForm();
+    showForm.value = false;
 
-    // Muat ulang data dari Supabase
-    await loadExpenses()
-  } catch (error: any) {
-    alert(error.message || 'Gagal menyimpan pengeluaran.')
+    await loadExpenses();
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Gagal menyimpan pengeluaran.";
+
+    errorMessage.value = message;
+    alert(message);
   } finally {
-    submitting.value = false
+    submitting.value = false;
   }
-}
+};
 
 const handleDelete = async (id: number) => {
-  if (!confirm('Yakin ingin menghapus pengeluaran ini?')) return
+  if (!confirm("Yakin ingin menghapus pengeluaran ini?")) return;
+
+  errorMessage.value = "";
 
   try {
-    await deleteTransaction(id)
-    await loadExpenses()
-  } catch (error: any) {
-    alert(error.message || 'Gagal menghapus pengeluaran.')
+    await deleteTransaction(id);
+    await loadExpenses();
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Gagal menghapus pengeluaran.";
+
+    errorMessage.value = message;
+    alert(message);
   }
-}
+};
 
 onMounted(() => {
-  void loadExpenses()
-})
+  void loadExpenses();
+});
 </script>
 
 <template>
-  <!-- Background blobs: langsung di body, fixed, di belakang semua konten -->
+  <!-- Background blobs -->
   <Teleport to="body">
     <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
       <div
@@ -139,16 +192,10 @@ onMounted(() => {
     </div>
   </Teleport>
 
-  <DashboardLayout
-    title="Uang Keluar"
-    subtitle="Kelola semua pengeluaran kamu"
-  >
-    <!-- Main wrapper -->
+  <DashboardLayout title="Uang Keluar" subtitle="Kelola semua pengeluaran kamu">
     <div class="relative">
-      <!-- Content -->
       <div class="relative z-10">
-
-        <!-- Actions (judul & subjudul sudah ada di AppHeader) -->
+        <!-- Actions -->
         <div class="mb-6 flex justify-end">
           <div class="flex items-center gap-3">
             <button
@@ -163,8 +210,8 @@ onMounted(() => {
 
             <button
               type="button"
-              @click="showForm = true"
               class="flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:bg-red-700 hover:shadow-md"
+              @click="showForm = true"
             >
               <Plus :size="18" />
               Tambah Pengeluaran
@@ -192,9 +239,7 @@ onMounted(() => {
             </div>
 
             <div>
-              <p class="text-sm text-red-700">
-                Total pengeluaran
-              </p>
+              <p class="text-sm text-red-700">Total pengeluaran</p>
 
               <p class="mt-1 text-2xl font-bold text-red-700 sm:text-3xl">
                 {{ formatRupiah(totalExpense) }}
@@ -226,10 +271,7 @@ onMounted(() => {
         >
           <div class="overflow-x-auto">
             <table class="w-full min-w-[700px]">
-
-              <thead
-                class="border-b border-slate-200 bg-slate-50/80"
-              >
+              <thead class="border-b border-slate-200 bg-slate-50/80">
                 <tr>
                   <th
                     class="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
@@ -264,13 +306,30 @@ onMounted(() => {
               </thead>
 
               <!-- Skeleton Loading -->
-              <tbody v-if="loading" class="divide-y divide-slate-100 animate-pulse">
+              <tbody
+                v-if="loading"
+                class="animate-pulse divide-y divide-slate-100"
+              >
                 <tr v-for="i in 3" :key="'skeleton-expense-' + i">
-                  <td class="px-6 py-4"><div class="h-4 w-40 rounded bg-slate-200"></div></td>
-                  <td class="px-6 py-4"><div class="h-4 w-28 rounded bg-slate-200"></div></td>
-                  <td class="px-6 py-4"><div class="h-4 w-24 rounded bg-slate-200"></div></td>
-                  <td class="px-6 py-4 text-right"><div class="ml-auto h-4 w-24 rounded bg-slate-200"></div></td>
-                  <td class="px-6 py-4 text-right"><div class="ml-auto h-8 w-8 rounded-lg bg-slate-200"></div></td>
+                  <td class="px-6 py-4">
+                    <div class="h-4 w-40 rounded bg-slate-200"></div>
+                  </td>
+
+                  <td class="px-6 py-4">
+                    <div class="h-4 w-28 rounded bg-slate-200"></div>
+                  </td>
+
+                  <td class="px-6 py-4">
+                    <div class="h-4 w-24 rounded bg-slate-200"></div>
+                  </td>
+
+                  <td class="px-6 py-4 text-right">
+                    <div class="ml-auto h-4 w-24 rounded bg-slate-200"></div>
+                  </td>
+
+                  <td class="px-6 py-4 text-right">
+                    <div class="ml-auto h-8 w-8 rounded-lg bg-slate-200"></div>
+                  </td>
                 </tr>
               </tbody>
 
@@ -303,9 +362,7 @@ onMounted(() => {
                     {{ formatDate(item.transaction_date) }}
                   </td>
 
-                  <td
-                    class="px-6 py-4 text-right font-semibold text-red-600"
-                  >
+                  <td class="px-6 py-4 text-right font-semibold text-red-600">
                     -{{ formatRupiah(Number(item.amount)) }}
                   </td>
 
@@ -313,9 +370,9 @@ onMounted(() => {
                     <div class="flex justify-end gap-2">
                       <button
                         type="button"
-                        @click="handleDelete(item.id)"
                         class="rounded-lg p-2 text-slate-400 transition hover:bg-red-50 hover:text-red-600"
                         title="Hapus"
+                        @click="handleDelete(item.id)"
                       >
                         <Trash2 :size="17" />
                       </button>
@@ -323,35 +380,29 @@ onMounted(() => {
                   </td>
                 </tr>
 
-                <!-- Empty state -->
-                <tr v-if="!loading && filteredExpenses.length === 0">
-                  <td
-                    colspan="5"
-                    class="px-6 py-12 text-center"
-                  >
+                <!-- Empty State -->
+                <tr v-if="filteredExpenses.length === 0">
+                  <td colspan="5" class="px-6 py-12 text-center">
                     <div
                       class="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-400"
                     >
                       <Search :size="21" />
                     </div>
 
-                    <p
-                      class="mt-3 text-sm font-medium text-slate-700"
-                    >
+                    <p class="mt-3 text-sm font-medium text-slate-700">
                       Pengeluaran tidak ditemukan
                     </p>
 
                     <p class="mt-1 text-xs text-slate-400">
-                      Coba gunakan kata kunci pencarian lain atau tambahkan pengeluaran baru.
+                      Coba gunakan kata kunci pencarian lain atau tambahkan
+                      pengeluaran baru.
                     </p>
                   </td>
                 </tr>
               </tbody>
-
             </table>
           </div>
         </div>
-
       </div>
     </div>
 
@@ -364,7 +415,6 @@ onMounted(() => {
       <div
         class="relative w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl sm:p-7"
       >
-
         <!-- Modal blobs -->
         <div
           class="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full bg-red-100/60 blur-3xl"
@@ -375,7 +425,6 @@ onMounted(() => {
         ></div>
 
         <div class="relative">
-
           <!-- Modal header -->
           <div class="mb-6 flex items-start justify-between gap-4">
             <div>
@@ -389,38 +438,30 @@ onMounted(() => {
                 Tambah Pengeluaran
               </h2>
 
-              <p class="mt-1 text-sm text-slate-500">
-                Catat uang yang keluar.
-              </p>
+              <p class="mt-1 text-sm text-slate-500">Catat uang yang keluar.</p>
             </div>
 
             <button
               type="button"
-              @click="showForm = false"
               class="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
               title="Tutup"
+              @click="showForm = false"
             >
               <X :size="19" />
             </button>
           </div>
 
           <!-- Form -->
-          <form
-            class="space-y-4"
-            @submit.prevent="saveExpense"
-          >
-
+          <form class="space-y-4" @submit.prevent="saveExpense">
             <!-- Description -->
             <div>
-              <label
-                class="mb-2 block text-sm font-medium text-slate-700"
-              >
+              <label class="mb-2 block text-sm font-medium text-slate-700">
                 Keterangan
               </label>
 
               <input
                 v-model="description"
-                placeholder="Contoh: Beli Gorengan"
+                placeholder="Contoh: Bayar kos bulanan"
                 class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
                 required
               />
@@ -428,32 +469,31 @@ onMounted(() => {
 
             <!-- Category -->
             <div>
-              <label
-                class="mb-2 block text-sm font-medium text-slate-700"
-              >
+              <label class="mb-2 block text-sm font-medium text-slate-700">
                 Kategori
               </label>
 
               <select
                 v-model="category"
                 class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                required
               >
-                <option>Makanan</option>
-                <option>Transportasi</option>
-                <option>Belanja</option>
-                <option>Tagihan</option>
-                <option>Hiburan</option>
-                <option>Kesehatan</option>
-                <option>Pendidikan</option>
-                <option>Lainnya</option>
+                <option v-for="item in categories" :key="item" :value="item">
+                  {{ item }}
+                </option>
               </select>
+
+              <p
+                v-if="category === 'Biaya Tetap'"
+                class="mt-2 text-xs text-slate-500"
+              >
+                Untuk pengeluaran rutin seperti kos, sewa, atau cicilan.
+              </p>
             </div>
 
             <!-- Amount -->
             <div>
-              <label
-                class="mb-2 block text-sm font-medium text-slate-700"
-              >
+              <label class="mb-2 block text-sm font-medium text-slate-700">
                 Nominal
               </label>
 
@@ -461,6 +501,7 @@ onMounted(() => {
                 v-model.number="amount"
                 type="number"
                 min="1"
+                step="1"
                 placeholder="24000"
                 class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
                 required
@@ -469,9 +510,7 @@ onMounted(() => {
 
             <!-- Date -->
             <div>
-              <label
-                class="mb-2 block text-sm font-medium text-slate-700"
-              >
+              <label class="mb-2 block text-sm font-medium text-slate-700">
                 Tanggal
               </label>
 
@@ -487,19 +526,18 @@ onMounted(() => {
             <button
               type="submit"
               :disabled="submitting"
-              class="flex w-full items-center justify-center gap-2 rounded-xl bg-red-600 py-3 font-semibold text-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:bg-red-700 hover:shadow-md disabled:opacity-60"
+              class="flex w-full items-center justify-center gap-2 rounded-xl bg-red-600 py-3 font-semibold text-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:bg-red-700 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60"
             >
               <span
                 v-if="submitting"
                 class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
               ></span>
-              {{ submitting ? 'Menyimpan...' : 'Simpan Pengeluaran' }}
-            </button>
 
+              {{ submitting ? "Menyimpan..." : "Simpan Pengeluaran" }}
+            </button>
           </form>
         </div>
       </div>
     </div>
-
   </DashboardLayout>
 </template>
