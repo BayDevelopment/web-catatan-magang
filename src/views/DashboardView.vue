@@ -9,7 +9,7 @@ import {
   TrendingUp,
   RefreshCw,
 } from "lucide-vue-next";
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onActivated, onMounted, ref, watch } from "vue";
 
 import DashboardLayout from "../layouts/DashboardLayout.vue";
 import { getTransactions } from "../services/transaction.service";
@@ -51,6 +51,9 @@ const errorMessage = ref("");
 const currentPage = ref(1);
 const hoverIndex = ref<number | null>(null);
 
+/** Waktu "sekarang", diperbarui setiap data dimuat ulang (supaya hari ini tidak basi) */
+const now = ref(new Date());
+
 /* ------------------------------------------------------------------ */
 /* Helper format                                                       */
 /* ------------------------------------------------------------------ */
@@ -87,6 +90,24 @@ const toISO = (d: Date) => {
   return `${y}-${m}-${day}`;
 };
 
+/**
+ * Ubah tanggal dari backend jadi YYYY-MM-DD menurut zona waktu lokal.
+ * - "2026-10-21"              -> dipakai apa adanya
+ * - "2026-10-21T00:00:00"     -> ambil bagian tanggalnya (tanpa zona waktu)
+ * - "2026-10-20T17:00:00.000Z"-> dikonversi ke waktu lokal (21 Okt di WIB)
+ */
+const normalizeDate = (value: unknown) => {
+  const s = String(value ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  const hasTimezone = /(Z|[+-]\d{2}:?\d{2})$/i.test(s);
+  if (!hasTimezone && /^\d{4}-\d{2}-\d{2}[T ]/.test(s)) return s.slice(0, 10);
+
+  const parsed = new Date(s);
+  if (Number.isNaN(parsed.getTime())) return s.slice(0, 10);
+  return toISO(parsed);
+};
+
 /* ------------------------------------------------------------------ */
 /* Load data                                                           */
 /* ------------------------------------------------------------------ */
@@ -96,11 +117,11 @@ const loadTransactions = async () => {
 
   try {
     const data = await getTransactions();
-    // Pastikan tanggal selalu berformat YYYY-MM-DD agar filter akurat
     transactions.value = data.map((t) => ({
       ...t,
-      transaction_date: String(t.transaction_date).slice(0, 10),
+      transaction_date: normalizeDate(t.transaction_date),
     }));
+    now.value = new Date();
   } catch (error) {
     errorMessage.value =
       error instanceof Error
@@ -129,7 +150,7 @@ const balance = computed(() =>
 const MS_DAY = 1000 * 60 * 60 * 24;
 
 const period = computed(() => {
-  const today = new Date();
+  const today = new Date(now.value);
   today.setHours(0, 0, 0, 0);
   const todayISO = toISO(today);
 
@@ -282,7 +303,9 @@ const poolForDaily = computed(
 /**
  * Jatah per hari sampai gajian, dibulatkan ke bawah ke ribuan.
  * Dihitung dari awal hari ini, jadi angkanya tidak turun
- * setiap kali kamu mencatat pengeluaran hari ini.
+ * setiap kali kamu mencatat jajan harian hari ini
+ * (itu tercermin di "Hari ini terpakai" dan "sisa").
+ * Uang masuk dan biaya tetap tetap langsung mengubah jatah.
  */
 const dailyBudget = computed(() =>
   Math.max(
@@ -498,14 +521,13 @@ const hasChartData = computed(
 /* ------------------------------------------------------------------ */
 /* Pagination transaksi                                                */
 /* ------------------------------------------------------------------ */
+/** Urut: tanggal transaksi terbaru dulu, lalu waktu dicatat terbaru */
 const sortedTransactions = computed(() =>
-  [...transactions.value].sort((a, b) => {
-    const timeA = String(a.created_at ?? "").slice(11, 19) || "00:00:00";
-    const timeB = String(b.created_at ?? "").slice(11, 19) || "00:00:00";
-    const dateA = new Date(`${a.transaction_date}T${timeA}`).getTime();
-    const dateB = new Date(`${b.transaction_date}T${timeB}`).getTime();
-    return dateB - dateA;
-  }),
+  [...transactions.value].sort(
+    (a, b) =>
+      b.transaction_date.localeCompare(a.transaction_date) ||
+      String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")),
+  ),
 );
 
 const totalPages = computed(() =>
@@ -550,8 +572,21 @@ watch(totalPages, (total) => {
   if (currentPage.value > total) currentPage.value = total;
 });
 
+/* Muat data saat halaman dibuka, dan muat ulang saat kembali ke halaman
+   ini (kalau router memakai keep-alive, onMounted tidak jalan lagi). */
+let initialLoadDone = false;
+
 onMounted(() => {
+  initialLoadDone = true;
   void loadTransactions();
+});
+
+onActivated(() => {
+  if (initialLoadDone) {
+    void loadTransactions();
+  } else {
+    initialLoadDone = true;
+  }
 });
 </script>
 
