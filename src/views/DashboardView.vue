@@ -292,20 +292,22 @@ const variableSpentBeforeToday = computed(
     spentToday.value,
 );
 
-/** Dana yang tersisa untuk dibagi per hari (setelah biaya tetap) */
+/**
+ * Dana yang tersisa untuk dibagi per hari, dihitung dari kondisi SAAT INI:
+ * dana periode - biaya tetap - semua jajan harian (termasuk hari ini).
+ */
 const poolForDaily = computed(
   () =>
     fundsThisPeriod.value -
     fixedExpenseTotal.value -
-    variableSpentBeforeToday.value,
+    variableSpentBeforeToday.value -
+    spentToday.value,
 );
 
 /**
- * Jatah per hari sampai gajian, dibulatkan ke bawah ke ribuan.
- * Dihitung dari awal hari ini, jadi angkanya tidak turun
- * setiap kali kamu mencatat jajan harian hari ini
- * (itu tercermin di "Hari ini terpakai" dan "sisa").
- * Uang masuk dan biaya tetap tetap langsung mengubah jatah.
+ * Jatah per hari sampai gajian (angka besar), dibulatkan ke bawah ke ribuan.
+ * Selalu mengikuti sisa uang terkini, jadi turun setiap kali kamu mencatat
+ * pengeluaran dan naik kalau ada uang masuk.
  */
 const dailyBudget = computed(() =>
   Math.max(
@@ -314,8 +316,18 @@ const dailyBudget = computed(() =>
   ),
 );
 
-/** Sisa jatah hari ini */
-const todayLeft = computed(() => dailyBudget.value - spentToday.value);
+/** Jatah awal hari ini (sebelum pengeluaran hari ini), sebagai pembanding */
+const startOfDayBudget = computed(() =>
+  Math.max(
+    Math.floor(
+      (poolForDaily.value + spentToday.value) / period.value.daysLeft / 1000,
+    ) * 1000,
+    0,
+  ),
+);
+
+/** Sisa jatah hari ini terhadap jatah awal hari */
+const todayLeft = computed(() => startOfDayBudget.value - spentToday.value);
 
 /** Persentase dana yang sudah terpakai (untuk progress bar) */
 const usedPercent = computed(() => {
@@ -329,7 +341,10 @@ const usedPercent = computed(() => {
 const status = computed(() => {
   if (remainingBudget.value < 0)
     return { label: "Defisit", cls: "bg-red-400/20 text-red-100" };
-  if (fundsThisPeriod.value > 0 && usedPercent.value > 85)
+  if (
+    fundsThisPeriod.value > 0 &&
+    (usedPercent.value > 85 || spentToday.value > startOfDayBudget.value)
+  )
     return { label: "Hampir habis", cls: "bg-amber-400/20 text-amber-100" };
   return { label: "Aman", cls: "bg-emerald-400/20 text-emerald-100" };
 });
@@ -726,8 +741,8 @@ onActivated(() => {
         <div class="mt-5 rounded-xl bg-white/10 px-4 py-3 text-sm">
           Hari ini terpakai
           <span class="font-semibold">{{ formatRupiah(spentToday) }}</span>
-          dari jatah
-          <span class="font-semibold">{{ formatRupiah(dailyBudget) }}</span
+          dari jatah awal hari
+          <span class="font-semibold">{{ formatRupiah(startOfDayBudget) }}</span
           >,
           <span
             class="font-semibold"
@@ -739,7 +754,7 @@ onActivated(() => {
         </div>
 
         <p
-          v-if="spentToday > dailyBudget && dailyBudget > 0"
+          v-if="spentToday > startOfDayBudget && startOfDayBudget > 0"
           class="mt-4 text-xs font-semibold text-amber-200"
         >
           Pengeluaran harian hari ini melebihi jatah.
