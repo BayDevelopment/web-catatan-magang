@@ -16,7 +16,7 @@ import {
 } from "lucide-vue-next";
 import { RouterLink } from "vue-router";
 import { useAuthStore } from "../stores/auth";
-import { supabase } from "../services/supabase";
+import { supabase } from "../lib/supabase";
 import type { Profile } from "../types/profile";
 
 const authStore = useAuthStore();
