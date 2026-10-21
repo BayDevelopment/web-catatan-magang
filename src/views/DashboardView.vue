@@ -19,7 +19,7 @@ import type { Transaction } from "../types/transaction";
 /* Konfigurasi                                                         */
 /* ------------------------------------------------------------------ */
 
-const PAYDAY = 22;
+const PAYDAY = 21;
 const PER_PAGE = 5;
 const MS_DAY = 24 * 60 * 60 * 1000;
 const ROUNDING_UNIT = 1000;
@@ -234,46 +234,34 @@ const period = computed(() => {
   const today = startOfDay(now.value);
   const todayISO = toISO(today);
 
-  // Periode default: tanggal 22 sampai tanggal 21 berikutnya.
-  let start =
+  // Periode dimulai setiap tanggal 21.
+  const start =
     today.getDate() >= PAYDAY
       ? new Date(today.getFullYear(), today.getMonth(), PAYDAY)
       : new Date(today.getFullYear(), today.getMonth() - 1, PAYDAY);
 
-  let nextPayday = addMonthsOnPayday(start, 1);
-  let salaryDate: string | null = null;
+  // Periode berikutnya dimulai tanggal 21 bulan berikutnya.
+  const nextPayday = new Date(
+    start.getFullYear(),
+    start.getMonth() + 1,
+    PAYDAY,
+  );
+
+  // Periode berjalan berakhir tanggal 20.
+  const end = addDays(nextPayday, -1);
 
   const salaryTransactions = transactions.value
     .filter(isSalary)
     .filter((transaction) => transaction.transaction_date <= todayISO)
     .sort((a, b) => a.transaction_date.localeCompare(b.transaction_date));
 
-  const latestSalary = salaryTransactions[salaryTransactions.length - 1];
+  // Hanya tampilkan acuan gaji apabila transaksi gaji
+  // tercatat pada awal periode yang sedang berjalan.
+  const salaryAtPeriodStart = salaryTransactions.find(
+    (transaction) => transaction.transaction_date === toISO(start),
+  );
 
-  if (latestSalary) {
-    const salaryDay = new Date(`${latestSalary.transaction_date}T00:00:00`);
-
-    const day = salaryDay.getDate();
-
-    // Gaji tanggal 15–21 diasumsikan sebagai pembayaran
-    // awal untuk siklus gajian berikutnya.
-    const isEarlyOrOnPayday = day >= PAYDAY - EARLY_PAY_DAYS;
-
-    const candidateNextPayday = isEarlyOrOnPayday
-      ? addMonthsOnPayday(salaryDay, 1)
-      : new Date(salaryDay.getFullYear(), salaryDay.getMonth(), PAYDAY);
-
-    // Gaji aktual menjadi acuan jika tanggal gajian
-    // selanjutnya belum tiba.
-    if (candidateNextPayday.getTime() > today.getTime()) {
-      start = salaryDay;
-      nextPayday = candidateNextPayday;
-      salaryDate = latestSalary.transaction_date;
-    }
-  }
-
-  const end = addDays(nextPayday, -1);
-  const totalDays = Math.max(differenceInDays(start, nextPayday), 1);
+  const totalDays = differenceInDays(start, nextPayday);
   const dayIndex = differenceInDays(start, today);
   const daysLeft = Math.max(differenceInDays(today, nextPayday), 1);
 
@@ -282,11 +270,11 @@ const period = computed(() => {
     start: toISO(start),
     end: toISO(end),
     nextPayday: toISO(nextPayday),
-    totalDays,
+    totalDays: Math.max(totalDays, 1),
     dayIndex,
     daysLeft,
     today: todayISO,
-    salaryDate,
+    salaryDate: salaryAtPeriodStart?.transaction_date ?? null,
   };
 });
 
@@ -901,9 +889,9 @@ onActivated(() => {
             </p>
           </div>
           <div>
-            <p class="text-xs text-indigo-200">Sisa untuk jajan harian</p>
+            <p class="text-xs text-indigo-200">Sisa dana jajan</p>
             <p class="mt-1 text-lg font-bold">
-              {{ formatRupiah(poolForDaily) }}
+              {{ formatRupiah(remainingDailyPool) }}
             </p>
           </div>
           <div>
@@ -970,8 +958,8 @@ onActivated(() => {
           v-if="period.daysLeft === 1 && fundsThisPeriod > 0"
           class="mt-2 text-xs text-indigo-100"
         >
-          Hari terakhir periode. Besok tanggal {{ PAYDAY }}, gajian baru
-          dimulai.
+          Hari terakhir periode anggaran. Besok tanggal {{ PAYDAY }}, periode
+          gajian baru dimulai.
         </p>
       </section>
 
