@@ -195,6 +195,190 @@ watch(totalTxPages, (total) => {
 });
 
 /* ------------------------------------------------------------------ */
+/* Grafik: arus uang semua user                                        */
+/* ------------------------------------------------------------------ */
+
+const CHART_RANGES = [7, 14, 30] as const;
+
+const chartRange = ref<number>(30);
+const hoverIndex = ref<number | null>(null);
+
+const toISO = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const formatShortDate = (iso: string) =>
+  new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short" }).format(
+    new Date(`${iso}T00:00:00`),
+  );
+
+const formatCompact = (value: number) =>
+  new Intl.NumberFormat("id-ID", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(Number.isFinite(value) ? value : 0);
+
+interface ChartDay {
+  iso: string;
+  income: number;
+  expense: number;
+  isToday: boolean;
+}
+
+const chartDays = computed<ChartDay[]>(() => {
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  const incomeMap = new Map<string, number>();
+  const expenseMap = new Map<string, number>();
+
+  for (const t of transactions.value) {
+    const amount = Number(t.amount);
+    if (!Number.isFinite(amount)) continue;
+
+    const iso = String(t.transaction_date).slice(0, 10);
+    const map = t.type === "income" ? incomeMap : expenseMap;
+    map.set(iso, (map.get(iso) ?? 0) + amount);
+  }
+
+  const days: ChartDay[] = [];
+
+  for (let i = chartRange.value - 1; i >= 0; i--) {
+    const date = new Date(
+      todayStart.getFullYear(),
+      todayStart.getMonth(),
+      todayStart.getDate() - i,
+    );
+    const iso = toISO(date);
+
+    days.push({
+      iso,
+      income: incomeMap.get(iso) ?? 0,
+      expense: expenseMap.get(iso) ?? 0,
+      isToday: i === 0,
+    });
+  }
+
+  return days;
+});
+
+const chartIncome = computed(() =>
+  chartDays.value.reduce((total, day) => total + day.income, 0),
+);
+const chartExpense = computed(() =>
+  chartDays.value.reduce((total, day) => total + day.expense, 0),
+);
+const hasChartData = computed(
+  () => chartIncome.value > 0 || chartExpense.value > 0,
+);
+
+// Geometri SVG
+const W = 760;
+const H = 280;
+const PAD = { top: 16, right: 16, bottom: 32, left: 56 };
+const innerW = W - PAD.left - PAD.right;
+const innerH = H - PAD.top - PAD.bottom;
+
+const niceStep = (max: number) => {
+  const raw = Math.max(max, 1) / 4;
+  const power = 10 ** Math.floor(Math.log10(raw));
+  const factor = raw / power;
+  const niceFactor = factor <= 1 ? 1 : factor <= 2 ? 2 : factor <= 5 ? 5 : 10;
+  return niceFactor * power;
+};
+
+const yScale = computed(() => {
+  const rawMax = Math.max(
+    ...chartDays.value.flatMap((day) => [day.income, day.expense]),
+    1,
+  );
+  const step = niceStep(rawMax);
+  const max = Math.ceil(rawMax / step) * step;
+
+  const ticks: number[] = [];
+  for (let value = 0; value <= max + step * 0.001; value += step) {
+    ticks.push(value);
+  }
+
+  return { max, ticks };
+});
+
+const yPos = (value: number) =>
+  PAD.top + innerH - (value / (yScale.value.max || 1)) * innerH;
+
+const band = computed(() => innerW / Math.max(chartDays.value.length, 1));
+const xCenter = (index: number) => PAD.left + band.value * (index + 0.5);
+const barWidth = computed(() => Math.max(Math.min(band.value * 0.34, 12), 2));
+
+const xLabels = computed(() => {
+  const every = chartRange.value <= 7 ? 1 : 5;
+  const last = chartDays.value.length - 1;
+
+  return chartDays.value
+    .map((day, i) => ({ i, iso: day.iso }))
+    .filter(
+      ({ i }) => i === 0 || i === last || (i % every === 0 && last - i >= 3),
+    );
+});
+
+const hovered = computed(() =>
+  hoverIndex.value === null
+    ? null
+    : (chartDays.value[hoverIndex.value] ?? null),
+);
+
+const tooltipStyle = computed(() => {
+  if (hoverIndex.value === null) return {};
+
+  const leftPercent = (xCenter(hoverIndex.value) / W) * 100;
+  const flip = leftPercent > 62;
+
+  return {
+    left: `${leftPercent}%`,
+    transform: flip ? "translateX(calc(-100% - 12px))" : "translateX(12px)",
+  };
+});
+
+// Pengeluaran per kategori pada rentang yang dipilih (top 5)
+const topCategories = computed(() => {
+  const first = chartDays.value[0]?.iso;
+  const last = chartDays.value[chartDays.value.length - 1]?.iso;
+  if (!first || !last) return [];
+
+  const totals = new Map<string, number>();
+
+  for (const t of transactions.value) {
+    if (t.type !== "expense") continue;
+
+    const iso = String(t.transaction_date).slice(0, 10);
+    if (iso < first || iso > last) continue;
+
+    const amount = Number(t.amount);
+    if (!Number.isFinite(amount)) continue;
+
+    const key =
+      String(t.category ?? "")
+        .trim()
+        .toLowerCase() || "lainnya";
+    totals.set(key, (totals.get(key) ?? 0) + amount);
+  }
+
+  const total = chartExpense.value || 1;
+
+  return [...totals.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([name, amount]) => ({
+      name,
+      amount,
+      percent: Math.round((amount / total) * 100),
+    }));
+});
+
+/* ------------------------------------------------------------------ */
 /* Load data                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -296,25 +480,24 @@ onMounted(() => {
     title="Admin Dashboard"
     subtitle="Monitoring dan pengelolaan sistem"
   >
-    <div class="relative isolate min-h-full">
+    <div class="relative min-h-full">
       <!-- Background blobs -->
-      <div
-        class="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
-        aria-hidden="true"
-      >
-        <div
-          class="absolute -left-20 -top-20 h-[520px] w-[520px] bg-[radial-gradient(closest-side,rgba(129,140,248,0.38),transparent)]"
-        ></div>
-        <div
-          class="absolute -right-24 top-1/4 h-[480px] w-[480px] bg-[radial-gradient(closest-side,rgba(192,132,252,0.30),transparent)]"
-        ></div>
-        <div
-          class="absolute -bottom-24 left-1/3 h-[480px] w-[480px] bg-[radial-gradient(closest-side,rgba(147,197,253,0.40),transparent)]"
-        ></div>
-        <div
-          class="absolute bottom-10 right-10 h-80 w-80 bg-[radial-gradient(closest-side,rgba(186,230,253,0.35),transparent)]"
-        ></div>
-      </div>
+      <Teleport to="body">
+        <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+          <div
+            class="absolute -top-40 -left-40 h-[500px] w-[500px] transform-gpu rounded-full bg-indigo-300/30 blur-[120px]"
+          ></div>
+          <div
+            class="absolute -right-40 top-1/4 h-[450px] w-[450px] transform-gpu rounded-full bg-purple-300/25 blur-[120px]"
+          ></div>
+          <div
+            class="absolute -bottom-32 left-1/3 h-[450px] w-[450px] transform-gpu rounded-full bg-blue-200/30 blur-[120px]"
+          ></div>
+          <div
+            class="absolute bottom-10 right-10 h-80 w-80 transform-gpu rounded-full bg-sky-200/20 blur-[100px]"
+          ></div>
+        </div>
+      </Teleport>
 
       <!-- Toolbar: badge + aksi (judul sudah ada di layout) -->
       <div
@@ -445,6 +628,261 @@ onMounted(() => {
               <p class="mt-2 text-xs text-slate-400">{{ card.hint }}</p>
             </div>
           </template>
+        </div>
+        <!-- Grafik -->
+        <div class="mt-6 grid gap-6 xl:grid-cols-3">
+          <!-- Arus uang -->
+          <div
+            class="rounded-2xl border border-slate-200/80 bg-white/90 p-5 shadow-sm backdrop-blur sm:p-6 xl:col-span-2"
+          >
+            <div
+              class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
+            >
+              <div>
+                <h2 class="font-semibold text-slate-900">
+                  Arus uang semua pengguna
+                </h2>
+                <p class="text-sm text-slate-500">
+                  Total pemasukan dan pengeluaran per hari
+                </p>
+              </div>
+
+              <div
+                class="inline-flex self-start rounded-xl border border-slate-200 bg-white p-0.5"
+              >
+                <button
+                  v-for="r in CHART_RANGES"
+                  :key="r"
+                  type="button"
+                  class="rounded-lg px-3 py-1 text-xs font-semibold transition"
+                  :class="
+                    chartRange === r
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  "
+                  @click="chartRange = r"
+                >
+                  {{ r }} hari
+                </button>
+              </div>
+            </div>
+
+            <div class="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-xs">
+              <p class="flex items-center gap-1.5 text-slate-600">
+                <span class="h-2.5 w-2.5 rounded-sm bg-emerald-400"></span>
+                Masuk
+                <span class="font-semibold text-emerald-600">
+                  {{ formatRupiah(chartIncome) }}
+                </span>
+              </p>
+              <p class="flex items-center gap-1.5 text-slate-600">
+                <span class="h-2.5 w-2.5 rounded-sm bg-red-400"></span>
+                Keluar
+                <span class="font-semibold text-red-600">
+                  {{ formatRupiah(chartExpense) }}
+                </span>
+              </p>
+            </div>
+
+            <div class="mt-4">
+              <div
+                v-if="loading"
+                class="h-64 animate-pulse rounded-xl bg-slate-100"
+              ></div>
+
+              <div v-else class="relative">
+                <svg
+                  :viewBox="`0 0 ${W} ${H}`"
+                  class="h-auto w-full select-none"
+                  role="img"
+                  aria-label="Grafik pemasukan dan pengeluaran harian seluruh pengguna"
+                  @mouseleave="hoverIndex = null"
+                >
+                  <!-- Grid + sumbu Y -->
+                  <g>
+                    <template
+                      v-for="tick in yScale.ticks"
+                      :key="'tick-' + tick"
+                    >
+                      <line
+                        :x1="PAD.left"
+                        :x2="W - PAD.right"
+                        :y1="yPos(tick)"
+                        :y2="yPos(tick)"
+                        :stroke="tick === 0 ? '#94a3b8' : '#e2e8f0'"
+                        :stroke-dasharray="tick === 0 ? '0' : '3 4'"
+                        stroke-width="1"
+                      />
+                      <text
+                        :x="PAD.left - 8"
+                        :y="yPos(tick) + 4"
+                        text-anchor="end"
+                        class="fill-slate-400"
+                        font-size="11"
+                      >
+                        {{ formatCompact(tick) }}
+                      </text>
+                    </template>
+                  </g>
+
+                  <!-- Highlight hari yang di-hover -->
+                  <rect
+                    v-if="hoverIndex !== null"
+                    :x="PAD.left + band * hoverIndex"
+                    :y="PAD.top"
+                    :width="band"
+                    :height="innerH"
+                    fill="#6366f1"
+                    fill-opacity="0.07"
+                  />
+
+                  <!-- Bar harian -->
+                  <g v-for="(d, i) in chartDays" :key="'bars-' + d.iso">
+                    <rect
+                      v-if="d.income > 0"
+                      :x="xCenter(i) - barWidth - 1"
+                      :y="yPos(d.income)"
+                      :width="barWidth"
+                      :height="Math.max(yPos(0) - yPos(d.income), 0)"
+                      rx="2"
+                      fill="#34d399"
+                      fill-opacity="0.9"
+                    />
+                    <rect
+                      v-if="d.expense > 0"
+                      :x="xCenter(i) + 1"
+                      :y="yPos(d.expense)"
+                      :width="barWidth"
+                      :height="Math.max(yPos(0) - yPos(d.expense), 0)"
+                      rx="2"
+                      fill="#f87171"
+                      fill-opacity="0.9"
+                    />
+                  </g>
+
+                  <!-- Penanda hari ini -->
+                  <line
+                    :x1="xCenter(chartDays.length - 1)"
+                    :x2="xCenter(chartDays.length - 1)"
+                    :y1="PAD.top"
+                    :y2="PAD.top + innerH"
+                    stroke="#6366f1"
+                    stroke-opacity="0.35"
+                    stroke-dasharray="2 3"
+                  />
+
+                  <!-- Sumbu X -->
+                  <text
+                    v-for="l in xLabels"
+                    :key="'x-' + l.iso"
+                    :x="xCenter(l.i)"
+                    :y="H - 10"
+                    text-anchor="middle"
+                    class="fill-slate-400"
+                    font-size="11"
+                  >
+                    {{ formatShortDate(l.iso) }}
+                  </text>
+
+                  <!-- Area interaksi per hari -->
+                  <rect
+                    v-for="(d, i) in chartDays"
+                    :key="'hit-' + d.iso"
+                    :x="PAD.left + band * i"
+                    :y="PAD.top"
+                    :width="band"
+                    :height="innerH"
+                    fill="transparent"
+                    @mouseenter="hoverIndex = i"
+                    @touchstart.passive="hoverIndex = i"
+                  />
+                </svg>
+
+                <!-- Tooltip -->
+                <div
+                  v-if="hovered"
+                  class="pointer-events-none absolute top-2 z-10 w-48 rounded-xl border border-slate-200 bg-white p-3 text-xs shadow-xl"
+                  :style="tooltipStyle"
+                >
+                  <p class="font-semibold text-slate-900">
+                    {{ formatDate(hovered.iso) }}
+                    <span
+                      v-if="hovered.isToday"
+                      class="ml-1 font-normal text-indigo-600"
+                    >
+                      (hari ini)
+                    </span>
+                  </p>
+                  <dl class="mt-2 space-y-1">
+                    <div class="flex justify-between gap-3">
+                      <dt class="text-slate-500">Masuk</dt>
+                      <dd class="font-medium text-emerald-600">
+                        {{ formatRupiah(hovered.income) }}
+                      </dd>
+                    </div>
+                    <div class="flex justify-between gap-3">
+                      <dt class="text-slate-500">Keluar</dt>
+                      <dd class="font-medium text-red-600">
+                        {{ formatRupiah(hovered.expense) }}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+
+                <p
+                  v-if="!hasChartData"
+                  class="mt-2 text-center text-xs text-slate-400"
+                >
+                  Belum ada transaksi pada {{ chartRange }} hari terakhir.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Pengeluaran per kategori -->
+          <div
+            class="rounded-2xl border border-slate-200/80 bg-white/90 p-5 shadow-sm backdrop-blur sm:p-6"
+          >
+            <h2 class="font-semibold text-slate-900">
+              Pengeluaran per kategori
+            </h2>
+            <p class="mt-1 text-sm text-slate-500">
+              Top 5 dalam {{ chartRange }} hari terakhir
+            </p>
+
+            <div v-if="loading" class="mt-6 animate-pulse space-y-5">
+              <div v-for="i in 4" :key="'skeleton-cat-' + i" class="space-y-2">
+                <div class="h-3 w-24 rounded bg-slate-200"></div>
+                <div class="h-2 rounded-full bg-slate-100"></div>
+              </div>
+            </div>
+
+            <p
+              v-else-if="topCategories.length === 0"
+              class="mt-10 text-center text-sm text-slate-400"
+            >
+              Belum ada pengeluaran.
+            </p>
+
+            <ul v-else class="mt-6 space-y-5">
+              <li v-for="c in topCategories" :key="c.name">
+                <div class="flex items-center justify-between gap-3 text-sm">
+                  <span class="truncate font-medium capitalize text-slate-700">
+                    {{ c.name }}
+                  </span>
+                  <span class="shrink-0 text-xs text-slate-500">
+                    {{ formatRupiah(c.amount) }} · {{ c.percent }}%
+                  </span>
+                </div>
+                <div class="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    class="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-700"
+                    :style="{ width: `${c.percent}%` }"
+                  ></div>
+                </div>
+              </li>
+            </ul>
+          </div>
         </div>
       </template>
 
