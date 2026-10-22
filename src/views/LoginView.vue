@@ -1,54 +1,71 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import {
-  Wallet,
-  Eye,
-  EyeOff,
-  LogIn,
-} from 'lucide-vue-next'
-import { supabase } from '../lib/supabase'
-import { useRouter } from 'vue-router'
+import { ref } from "vue";
+import { Wallet, Eye, EyeOff, LogIn } from "lucide-vue-next";
+import { useRoute, useRouter } from "vue-router";
+import { useAuthStore } from "../stores/auth";
 
-const router = useRouter()
+const route = useRoute();
+const router = useRouter();
+const authStore = useAuthStore();
 
-const email = ref('')
-const password = ref('')
+const email = ref("");
+const password = ref("");
 
-const showPassword = ref(false)
-const loading = ref(false)
-const errorMessage = ref('')
+const showPassword = ref(false);
+const loading = ref(false);
+const errorMessage = ref("");
+
+// Hanya terima redirect ke halaman di dalam aplikasi (cegah open redirect).
+const safeRedirect = (): string | null => {
+  const raw = route.query.redirect;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+
+  if (
+    typeof value === "string" &&
+    value.startsWith("/") &&
+    !value.startsWith("//") &&
+    !value.includes("\\") &&
+    !value.startsWith("/login") &&
+    !value.startsWith("/register")
+  ) {
+    return value;
+  }
+
+  return null;
+};
 
 const login = async () => {
-  errorMessage.value = ''
+  if (loading.value) return;
 
-  if (!email.value || !password.value) {
-    errorMessage.value = 'Email dan password wajib diisi.'
-    return
+  errorMessage.value = "";
+
+  const cleanEmail = email.value.trim();
+
+  if (!cleanEmail || !password.value) {
+    errorMessage.value = "Email dan password wajib diisi.";
+    return;
   }
 
-  loading.value = true
+  loading.value = true;
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email: email.value,
-    password: password.value,
-  })
+  const result = await authStore.login(cleanEmail, password.value);
 
-  loading.value = false
+  loading.value = false;
 
-  if (error) {
-    errorMessage.value = error.message
-    return
+  if (!result.success) {
+    errorMessage.value = result.message;
+    return;
   }
 
-  router.push('/dashboard')
-}
+  // Admin ke /admin, user biasa ke /dashboard (kecuali ada tujuan sebelumnya).
+  await router.push(safeRedirect() ?? authStore.homePath);
+};
 </script>
 
 <template>
   <div
     class="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-50 px-4 py-10"
   >
-
     <!-- Background blobs -->
     <div
       class="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-indigo-200/40 blur-3xl"
@@ -68,33 +85,27 @@ const login = async () => {
 
     <!-- Content -->
     <div class="relative z-10 w-full max-w-md">
-
       <!-- Logo -->
       <div class="mb-8 text-center">
-
         <div
           class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-lg shadow-indigo-200 transition duration-300 hover:-translate-y-1 hover:shadow-xl"
         >
           <Wallet :size="28" />
         </div>
 
-        <h1
-          class="text-2xl font-bold tracking-tight text-slate-900"
-        >
+        <h1 class="text-2xl font-bold tracking-tight text-slate-900">
           KeuanganKu
         </h1>
 
         <p class="mt-1 text-sm text-slate-500">
           Kelola keuangan dengan lebih mudah
         </p>
-
       </div>
 
       <!-- Card -->
       <div
         class="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white/90 p-6 shadow-xl shadow-slate-200/50 backdrop-blur-xl sm:p-8"
       >
-
         <!-- Card blobs -->
         <div
           class="pointer-events-none absolute -right-20 -top-20 h-48 w-48 rounded-full bg-indigo-100/60 blur-3xl"
@@ -105,7 +116,6 @@ const login = async () => {
         ></div>
 
         <div class="relative">
-
           <!-- Header -->
           <div>
             <div
@@ -124,20 +134,18 @@ const login = async () => {
           </div>
 
           <!-- Form -->
-          <form
-            class="mt-6 space-y-5"
-            @submit.prevent="login"
-          >
-
+          <form class="mt-6 space-y-5" @submit.prevent="login">
             <!-- Email -->
             <div>
               <label
+                for="login-email"
                 class="mb-2 block text-sm font-medium text-slate-700"
               >
                 Email
               </label>
 
               <input
+                id="login-email"
                 v-model="email"
                 type="email"
                 placeholder="nama@email.com"
@@ -149,14 +157,15 @@ const login = async () => {
             <!-- Password -->
             <div>
               <label
+                for="login-password"
                 class="mb-2 block text-sm font-medium text-slate-700"
               >
                 Password
               </label>
 
               <div class="relative">
-
                 <input
+                  id="login-password"
                   v-model="password"
                   :type="showPassword ? 'text' : 'password'"
                   placeholder="Masukkan password"
@@ -166,25 +175,16 @@ const login = async () => {
 
                 <button
                   type="button"
-                  @click="showPassword = !showPassword"
                   class="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
                   :aria-label="
-                    showPassword
-                      ? 'Sembunyikan password'
-                      : 'Tampilkan password'
+                    showPassword ? 'Sembunyikan password' : 'Tampilkan password'
                   "
+                  @click="showPassword = !showPassword"
                 >
-                  <EyeOff
-                    v-if="showPassword"
-                    :size="19"
-                  />
+                  <EyeOff v-if="showPassword" :size="19" />
 
-                  <Eye
-                    v-else
-                    :size="19"
-                  />
+                  <Eye v-else :size="19" />
                 </button>
-
               </div>
             </div>
 
@@ -192,6 +192,7 @@ const login = async () => {
             <div
               v-if="errorMessage"
               class="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600"
+              role="alert"
             >
               {{ errorMessage }}
             </div>
@@ -207,14 +208,10 @@ const login = async () => {
                 class="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
               ></span>
 
-              <LogIn
-                v-else
-                :size="18"
-              />
+              <LogIn v-else :size="18" />
 
-              {{ loading ? 'Memproses...' : 'Masuk' }}
+              {{ loading ? "Memproses..." : "Masuk" }}
             </button>
-
           </form>
 
           <!-- Register -->
@@ -230,7 +227,6 @@ const login = async () => {
               Daftar sekarang
             </RouterLink>
           </div>
-
         </div>
       </div>
 
@@ -238,7 +234,6 @@ const login = async () => {
       <p class="mt-6 text-center text-xs text-slate-400">
         KeuanganKu · Kelola keuangan dengan lebih mudah
       </p>
-
     </div>
   </div>
 </template>

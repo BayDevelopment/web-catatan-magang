@@ -7,6 +7,24 @@ import { getSession, logout as logoutService } from "../services/auth.service";
 
 import type { Profile } from "../types/profile";
 
+export type AuthResult =
+  | { success: true }
+  | { success: false; message: string };
+
+const translateAuthError = (message: string) => {
+  const text = message.toLowerCase();
+
+  if (text.includes("invalid login credentials")) {
+    return "Email atau password salah.";
+  }
+
+  if (text.includes("email not confirmed")) {
+    return "Email belum dikonfirmasi. Cek kotak masuk emailmu.";
+  }
+
+  return message;
+};
+
 export const useAuthStore = defineStore("auth", () => {
   // =========================
   // STATE
@@ -24,6 +42,16 @@ export const useAuthStore = defineStore("auth", () => {
   // Mencegah proses pengecekan profil berjalan bersamaan
   let profileCheckId = 0;
 
+  // Permintaan profil yang sedang berjalan untuk user yang sama dipakai bersama,
+  // supaya login() dan listener auth tidak saling membatalkan.
+  let inflightProfile: {
+    userId: string;
+    promise: Promise<boolean | null>;
+  } | null = null;
+
+  // init() yang dipanggil bersamaan memakai proses yang sama.
+  let initPromise: Promise<void> | null = null;
+
   // =========================
   // COMPUTED
   // =========================
@@ -32,34 +60,40 @@ export const useAuthStore = defineStore("auth", () => {
 
   const isAdmin = computed(() => profile.value?.role === "admin");
 
+  // Halaman utama setelah login: admin ke /admin, user biasa ke /dashboard.
+  const homePath = computed(() => (isAdmin.value ? "/admin" : "/dashboard"));
+
   // =========================
   // CLEAR AUTH
   // =========================
 
   const clearAuth = () => {
     profileCheckId++;
+    inflightProfile = null;
 
     user.value = null;
     session.value = null;
     profile.value = null;
   };
 
-  // Logout paksa saat akun atau profil sudah tidak tersedia.
-  const forceLogout = async () => {
+  // Hapus sesi lokal tanpa mengarahkan halaman (dipakai saat login gagal).
+  const dropSession = async () => {
     clearAuth();
 
     try {
-      // Hapus sesi lokal meskipun sesi server bermasalah.
       await supabase.auth.signOut({ scope: "local" });
     } catch (error) {
       console.error("Gagal membersihkan sesi:", error);
-    } finally {
-      clearAuth();
+    }
+  };
 
-      if (typeof window !== "undefined") {
-        if (window.location.pathname !== "/login") {
-          window.location.replace("/login");
-        }
+  // Logout paksa saat akun atau profil sudah tidak tersedia.
+  const forceLogout = async () => {
+    await dropSession();
+
+    if (typeof window !== "undefined") {
+      if (window.location.pathname !== "/login") {
+        window.location.replace("/login");
       }
     }
   };
@@ -70,39 +104,159 @@ export const useAuthStore = defineStore("auth", () => {
 
   // true  = profil ditemukan
   // false = profil tidak ditemukan
-  // null  = query gagal, misalnya karena masalah jaringan
-  const loadProfile = async (userId: string): Promise<boolean | null> => {
+  // null  = query gagal atau hasilnya sudah usang
+  const loadProfile = (userId: string): Promise<boolean | null> => {
+    if (inflightProfile?.userId === userId) {
+      return inflightProfile.promise;
+    }
+
     const currentCheckId = ++profileCheckId;
 
-    try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id, full_name, role, created_at")
-        .eq("id", userId)
-        .maybeSingle();
+    const promise: Promise<boolean | null> = (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("id, full_name, role, created_at")
+          .eq("id", userId)
+          .maybeSingle();
 
-      // Abaikan hasil pengecekan lama.
-      if (currentCheckId !== profileCheckId) {
+        // Abaikan hasil pengecekan lama.
+        if (currentCheckId !== profileCheckId) {
+          return null;
+        }
+
+        if (error) {
+          console.error("Gagal mengambil profil:", error.message);
+          return null;
+        }
+
+        // Profil tidak ada: akun tidak boleh melanjutkan sesi aplikasi.
+        if (!data) {
+          profile.value = null;
+          return false;
+        }
+
+        profile.value = data as Profile;
+        return true;
+      } catch (error) {
+        console.error("Kesalahan saat memuat profil:", error);
         return null;
       }
+    })().finally(() => {
+      if (inflightProfile?.promise === promise) {
+        inflightProfile = null;
+      }
+    });
+
+    inflightProfile = { userId, promise };
+
+    return promise;
+  };
+
+  // =========================
+  // LISTENER AUTH
+  // =========================
+
+  const registerAuthListener = () => {
+    // Daftarkan listener hanya sekali.
+    if (authSubscription) {
+      return;
+    }
+
+    const { data } = supabase.auth.onAuthStateChange((event, newSession) => {
+      session.value = newSession;
+      user.value = newSession?.user ?? null;
+
+      if (!newSession?.user) {
+        clearAuth();
+        return;
+      }
+
+      // Profil dimuat oleh init() dan login().
+      // Refresh token tidak mengubah profil.
+      if (event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") {
+        return;
+      }
+
+      const userId = newSession.user.id;
+
+      if (profile.value?.id === userId) {
+        return;
+      }
+
+      // Jalankan query setelah callback auth selesai.
+      setTimeout(() => {
+        void (async () => {
+          if (profile.value?.id === userId) {
+            return;
+          }
+
+          const profileExists = await loadProfile(userId);
+
+          if (profileExists === false) {
+            await forceLogout();
+          }
+        })();
+      }, 0);
+    });
+
+    authSubscription = data.subscription;
+  };
+
+  // =========================
+  // LOGIN
+  // =========================
+
+  // Login lewat store agar profil (role admin) sudah termuat
+  // sebelum halaman tujuan ditentukan.
+  const login = async (
+    email: string,
+    password: string,
+  ): Promise<AuthResult> => {
+    loading.value = true;
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password,
+      });
 
       if (error) {
-        console.error("Gagal mengambil profil:", error.message);
-        return null;
+        return { success: false, message: translateAuthError(error.message) };
       }
 
-      // Profil tidak ada: akun tidak boleh melanjutkan sesi aplikasi.
-      if (!data) {
-        profile.value = null;
-        return false;
+      session.value = data.session;
+      user.value = data.user;
+
+      const profileExists = await loadProfile(data.user.id);
+
+      if (profileExists === false) {
+        await dropSession();
+
+        return {
+          success: false,
+          message: "Profil akun tidak ditemukan. Hubungi admin.",
+        };
       }
 
-      profile.value = data as Profile;
-      return true;
-    } catch (error) {
-      console.error("Kesalahan saat memuat profil:", error);
+      if (profileExists === null && !profile.value) {
+        await dropSession();
 
-      return null;
+        return {
+          success: false,
+          message: "Gagal memuat profil akun. Periksa koneksi lalu coba lagi.",
+        };
+      }
+
+      return { success: true };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        message:
+          err instanceof Error ? err.message : "Terjadi kesalahan saat login.",
+      };
+    } finally {
+      loading.value = false;
     }
   };
 
@@ -119,11 +273,11 @@ export const useAuthStore = defineStore("auth", () => {
 
     try {
       const { data, error } = await supabase.auth.signUp({
-        email,
+        email: email.trim().toLowerCase(),
         password,
         options: {
           data: {
-            full_name: fullName,
+            full_name: fullName.trim(),
           },
         },
       });
@@ -138,6 +292,8 @@ export const useAuthStore = defineStore("auth", () => {
       return {
         success: true,
         data,
+        // true jika konfirmasi email aktif: belum ada sesi sampai email dikonfirmasi.
+        needsEmailConfirmation: !data.session,
       };
     } catch (err: unknown) {
       const message =
@@ -158,11 +314,7 @@ export const useAuthStore = defineStore("auth", () => {
   // INITIALIZE AUTH
   // =========================
 
-  const init = async () => {
-    if (initialized.value) {
-      return;
-    }
-
+  const runInit = async () => {
     loading.value = true;
 
     try {
@@ -185,6 +337,13 @@ export const useAuthStore = defineStore("auth", () => {
 
           // Gangguan lain tidak otomatis dianggap akun terhapus.
           console.error("Gagal memverifikasi akun:", userError.message);
+
+          const profileExists = await loadProfile(currentSession.user.id);
+
+          if (profileExists === false) {
+            await forceLogout();
+            return;
+          }
         } else if (!userData.user) {
           await forceLogout();
           return;
@@ -201,45 +360,72 @@ export const useAuthStore = defineStore("auth", () => {
       } else {
         profile.value = null;
       }
-
-      // Daftarkan listener hanya sekali.
-      if (!authSubscription) {
-        const { data } = supabase.auth.onAuthStateChange(
-          (_event, newSession) => {
-            session.value = newSession;
-            user.value = newSession?.user ?? null;
-
-            if (!newSession?.user) {
-              clearAuth();
-              return;
-            }
-
-            const userId = newSession.user.id;
-
-            // Jalankan query setelah callback auth selesai.
-            setTimeout(() => {
-              void (async () => {
-                const profileExists = await loadProfile(userId);
-
-                if (profileExists === false) {
-                  await forceLogout();
-                }
-              })();
-            }, 0);
-          },
-        );
-
-        authSubscription = data.subscription;
-      }
-
-      initialized.value = true;
     } catch (error) {
       console.error("Gagal menginisialisasi autentikasi:", error);
 
       clearAuth();
-      initialized.value = true;
     } finally {
+      registerAuthListener();
+      initialized.value = true;
       loading.value = false;
+    }
+  };
+
+  const init = (): Promise<void> => {
+    if (initialized.value) {
+      return Promise.resolve();
+    }
+
+    if (!initPromise) {
+      initPromise = runInit().finally(() => {
+        initPromise = null;
+      });
+    }
+
+    return initPromise;
+  };
+
+  // =========================
+  // HAPUS AKUN
+  // =========================
+
+  // Verifikasi ulang password, lalu hapus akun lewat fungsi database
+  // delete_my_account() yang hanya bisa menghapus akun si pemanggil sendiri.
+  const deleteAccount = async (password: string): Promise<AuthResult> => {
+    const email = user.value?.email;
+
+    if (!email) {
+      return {
+        success: false,
+        message: "Sesi tidak ditemukan. Silakan login kembali.",
+      };
+    }
+
+    try {
+      const { error: verifyError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (verifyError) {
+        return { success: false, message: "Password salah." };
+      }
+
+      const { error } = await supabase.rpc("delete_my_account");
+
+      if (error) {
+        return { success: false, message: error.message };
+      }
+
+      // Akun sudah tidak ada: bersihkan sesi lokal saja.
+      await dropSession();
+
+      return { success: true };
+    } catch (err: unknown) {
+      return {
+        success: false,
+        message: err instanceof Error ? err.message : "Gagal menghapus akun.",
+      };
     }
   };
 
@@ -271,10 +457,13 @@ export const useAuthStore = defineStore("auth", () => {
 
     isAuthenticated,
     isAdmin,
+    homePath,
 
     init,
+    login,
     register,
     logout,
+    deleteAccount,
     loadProfile,
   };
 });

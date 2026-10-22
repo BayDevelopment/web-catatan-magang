@@ -139,7 +139,7 @@ router.beforeEach(async (to) => {
   // kembali ke login/register
   if (to.meta.guestOnly && authStore.isAuthenticated) {
     return {
-      name: "dashboard",
+      name: authStore.isAdmin ? "admin" : "dashboard",
     };
   }
 

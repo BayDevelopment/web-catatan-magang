@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import {
   UserRound,
   Mail,
@@ -13,12 +13,15 @@ import {
   ArrowLeft,
   CheckCircle2,
   AlertCircle,
+  Trash2,
+  X,
 } from "lucide-vue-next";
-import { RouterLink } from "vue-router";
+import { RouterLink, useRouter } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 import { supabase } from "../lib/supabase";
 import type { Profile } from "../types/profile";
 
+const router = useRouter();
 const authStore = useAuthStore();
 
 const profile = ref<Profile | null>(null);
@@ -40,6 +43,94 @@ const errorMessage = ref("");
 const passwordSuccessMessage = ref("");
 const passwordErrorMessage = ref("");
 
+/* ------------------------------------------------------------------ */
+/* Hapus akun                                                           */
+/* ------------------------------------------------------------------ */
+const CONFIRM_WORD = "HAPUS";
+
+const showDeleteModal = ref(false);
+const deletePassword = ref("");
+const deleteConfirmText = ref("");
+const showDeletePassword = ref(false);
+const deleting = ref(false);
+const deleteDone = ref(false);
+const deleteError = ref("");
+const deletePasswordInput = ref<HTMLInputElement | null>(null);
+
+const canDelete = computed(
+  () =>
+    !deleting.value &&
+    !deleteDone.value &&
+    deletePassword.value.length > 0 &&
+    deleteConfirmText.value.trim().toUpperCase() === CONFIRM_WORD,
+);
+
+const openDeleteModal = () => {
+  deletePassword.value = "";
+  deleteConfirmText.value = "";
+  showDeletePassword.value = false;
+  deleteError.value = "";
+  deleteDone.value = false;
+  showDeleteModal.value = true;
+
+  void nextTick(() => deletePasswordInput.value?.focus());
+};
+
+const closeDeleteModal = () => {
+  // Tidak bisa ditutup saat proses berjalan atau akun sudah terhapus.
+  if (deleting.value || deleteDone.value) return;
+
+  showDeleteModal.value = false;
+  deletePassword.value = "";
+  deleteConfirmText.value = "";
+};
+
+const onKeydown = (event: KeyboardEvent) => {
+  if (event.key === "Escape") closeDeleteModal();
+};
+
+// Kunci scroll halaman dan dengarkan tombol Esc selama modal terbuka.
+watch(showDeleteModal, (open) => {
+  if (open) {
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeydown);
+  } else {
+    document.body.style.overflow = "";
+    window.removeEventListener("keydown", onKeydown);
+  }
+});
+
+const confirmDelete = async () => {
+  if (!canDelete.value) return;
+
+  deleting.value = true;
+  deleteError.value = "";
+
+  const result = await authStore.deleteAccount(deletePassword.value);
+
+  deleting.value = false;
+
+  if (!result.success) {
+    deleteError.value = result.message;
+    return;
+  }
+
+  deleteDone.value = true;
+  deletePassword.value = "";
+
+  // Beri waktu sebentar agar pesan sukses terbaca, lalu ke halaman login.
+  await new Promise((resolve) => setTimeout(resolve, 1600));
+  await router.replace({ name: "login" });
+};
+
+onUnmounted(() => {
+  document.body.style.overflow = "";
+  window.removeEventListener("keydown", onKeydown);
+});
+
+/* ------------------------------------------------------------------ */
+/* Profil                                                               */
+/* ------------------------------------------------------------------ */
 const userEmail = computed(() => authStore.user?.email ?? "");
 
 const initials = computed(() => {
@@ -218,9 +309,9 @@ onMounted(() => {
     <!-- Header -->
     <div class="flex min-w-0 items-center gap-3 sm:gap-4">
       <RouterLink
-        to="/dashboard"
+        :to="authStore.homePath"
         class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 hover:text-indigo-600"
-        aria-label="Kembali ke dashboard"
+        aria-label="Kembali"
       >
         <ArrowLeft :size="18" />
       </RouterLink>
@@ -586,6 +677,244 @@ onMounted(() => {
           </div>
         </form>
       </section>
+
+      <!-- Danger zone -->
+      <section
+        class="rounded-2xl border border-red-200 bg-white p-4 shadow-sm sm:p-6 lg:p-7"
+      >
+        <div
+          class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div class="flex min-w-0 items-start gap-3">
+            <div
+              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-600 sm:h-11 sm:w-11"
+            >
+              <Trash2 :size="20" />
+            </div>
+
+            <div class="min-w-0">
+              <h2 class="text-lg font-bold text-slate-900">Hapus Akun</h2>
+              <p class="mt-1 text-sm leading-relaxed text-slate-500">
+                Menghapus akun akan menghapus profil dan seluruh data
+                transaksimu secara permanen. Tindakan ini tidak bisa dibatalkan.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            class="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-5 py-3 text-sm font-semibold text-red-700 transition hover:bg-red-100 sm:w-auto"
+            @click="openDeleteModal"
+          >
+            <Trash2 :size="17" />
+            Hapus Akun
+          </button>
+        </div>
+      </section>
     </template>
+
+    <!-- Modal hapus akun -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="showDeleteModal"
+          class="fixed inset-0 z-[100] flex items-end justify-center overflow-y-auto bg-slate-950/50 px-4 py-6 backdrop-blur-sm sm:items-center"
+          @click.self="closeDeleteModal"
+        >
+          <div
+            class="modal-panel relative w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl sm:p-7"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-account-title"
+          >
+            <!-- Berhasil -->
+            <div v-if="deleteDone" class="py-4 text-center">
+              <div
+                class="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600"
+              >
+                <CheckCircle2 :size="28" />
+              </div>
+              <h2
+                id="delete-account-title"
+                class="mt-4 text-lg font-bold text-slate-900"
+              >
+                Akun berhasil dihapus
+              </h2>
+              <p class="mt-1 text-sm text-slate-500">
+                Terima kasih sudah memakai KeuanganKu. Mengalihkan ke halaman
+                login...
+              </p>
+            </div>
+
+            <!-- Konfirmasi -->
+            <template v-else>
+              <div class="flex items-start justify-between gap-4">
+                <div
+                  class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-600"
+                >
+                  <Trash2 :size="22" />
+                </div>
+
+                <button
+                  type="button"
+                  :disabled="deleting"
+                  class="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="Tutup"
+                  @click="closeDeleteModal"
+                >
+                  <X :size="19" />
+                </button>
+              </div>
+
+              <h2
+                id="delete-account-title"
+                class="mt-4 text-xl font-bold text-slate-900"
+              >
+                Hapus akun secara permanen?
+              </h2>
+              <p class="mt-2 text-sm leading-relaxed text-slate-500">
+                Semua transaksi, profil, dan akun
+                <span class="font-semibold break-all text-slate-700">
+                  {{ userEmail }}
+                </span>
+                akan dihapus dan tidak bisa dikembalikan.
+              </p>
+
+              <form class="mt-5 space-y-4" @submit.prevent="confirmDelete">
+                <p
+                  v-if="deleteError"
+                  class="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+                  role="alert"
+                >
+                  <AlertCircle :size="18" class="mt-0.5 shrink-0" />
+                  <span class="min-w-0 break-words">{{ deleteError }}</span>
+                </p>
+
+                <!-- Password -->
+                <div>
+                  <label
+                    for="delete_password"
+                    class="mb-2 block text-sm font-medium text-slate-700"
+                  >
+                    Password kamu
+                  </label>
+
+                  <div class="relative">
+                    <input
+                      id="delete_password"
+                      ref="deletePasswordInput"
+                      v-model="deletePassword"
+                      :type="showDeletePassword ? 'text' : 'password'"
+                      autocomplete="current-password"
+                      :disabled="deleting"
+                      placeholder="Masukkan password untuk konfirmasi"
+                      class="w-full min-w-0 rounded-xl border border-slate-200 bg-white py-3 pl-4 pr-12 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-red-400 focus:ring-4 focus:ring-red-500/10 disabled:bg-slate-50"
+                    />
+                    <button
+                      type="button"
+                      class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition hover:text-slate-700"
+                      :aria-label="
+                        showDeletePassword
+                          ? 'Sembunyikan password'
+                          : 'Tampilkan password'
+                      "
+                      @click="showDeletePassword = !showDeletePassword"
+                    >
+                      <EyeOff v-if="showDeletePassword" :size="18" />
+                      <Eye v-else :size="18" />
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Kata konfirmasi -->
+                <div>
+                  <label
+                    for="delete_confirm"
+                    class="mb-2 block text-sm font-medium text-slate-700"
+                  >
+                    Ketik
+                    <span class="font-bold text-red-600">{{
+                      CONFIRM_WORD
+                    }}</span>
+                    untuk melanjutkan
+                  </label>
+
+                  <input
+                    id="delete_confirm"
+                    v-model="deleteConfirmText"
+                    type="text"
+                    autocomplete="off"
+                    autocapitalize="characters"
+                    spellcheck="false"
+                    :disabled="deleting"
+                    :placeholder="CONFIRM_WORD"
+                    class="w-full min-w-0 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm uppercase tracking-wider text-slate-900 outline-none transition placeholder:text-slate-300 focus:border-red-400 focus:ring-4 focus:ring-red-500/10 disabled:bg-slate-50"
+                  />
+                </div>
+
+                <div class="flex flex-col-reverse gap-3 pt-1 sm:flex-row">
+                  <button
+                    type="button"
+                    :disabled="deleting"
+                    class="inline-flex w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    @click="closeDeleteModal"
+                  >
+                    Batal
+                  </button>
+
+                  <button
+                    type="submit"
+                    :disabled="!canDelete"
+                    class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-red-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <LoaderCircle
+                      v-if="deleting"
+                      :size="17"
+                      class="animate-spin"
+                    />
+                    <Trash2 v-else :size="17" />
+                    {{ deleting ? "Menghapus..." : "Hapus Akun" }}
+                  </button>
+                </div>
+              </form>
+            </template>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
+
+<style scoped>
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+
+.modal-enter-active .modal-panel,
+.modal-leave-active .modal-panel {
+  transition:
+    transform 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.modal-enter-from .modal-panel,
+.modal-leave-to .modal-panel {
+  opacity: 0;
+  transform: translateY(10px) scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-enter-active,
+  .modal-leave-active,
+  .modal-enter-active .modal-panel,
+  .modal-leave-active .modal-panel {
+    transition: none;
+  }
+}
+</style>
