@@ -296,21 +296,25 @@ onMounted(() => {
     title="Admin Dashboard"
     subtitle="Monitoring dan pengelolaan sistem"
   >
-    <div class="relative min-h-full">
+    <div class="relative isolate min-h-full">
       <!-- Background blobs -->
-      <Teleport to="body">
-        <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-          <div
-            class="absolute -top-40 -left-40 h-[500px] w-[500px] transform-gpu rounded-full bg-indigo-300/30 blur-[120px]"
-          ></div>
-          <div
-            class="absolute -right-40 top-1/4 h-[450px] w-[450px] transform-gpu rounded-full bg-purple-300/25 blur-[120px]"
-          ></div>
-          <div
-            class="absolute -bottom-32 left-1/3 h-[450px] w-[450px] transform-gpu rounded-full bg-blue-200/30 blur-[120px]"
-          ></div>
-        </div>
-      </Teleport>
+      <div
+        class="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
+        aria-hidden="true"
+      >
+        <div
+          class="absolute -left-20 -top-20 h-[520px] w-[520px] bg-[radial-gradient(closest-side,rgba(129,140,248,0.38),transparent)]"
+        ></div>
+        <div
+          class="absolute -right-24 top-1/4 h-[480px] w-[480px] bg-[radial-gradient(closest-side,rgba(192,132,252,0.30),transparent)]"
+        ></div>
+        <div
+          class="absolute -bottom-24 left-1/3 h-[480px] w-[480px] bg-[radial-gradient(closest-side,rgba(147,197,253,0.40),transparent)]"
+        ></div>
+        <div
+          class="absolute bottom-10 right-10 h-80 w-80 bg-[radial-gradient(closest-side,rgba(186,230,253,0.35),transparent)]"
+        ></div>
+      </div>
 
       <!-- Toolbar: badge + aksi (judul sudah ada di layout) -->
       <div
@@ -712,7 +716,11 @@ onMounted(() => {
               >
                 Tipe
               </label>
-              <select v-model="formData.type" :class="inputCls">
+              <select
+                v-model="formData.type"
+                :class="inputCls"
+                :disabled="modalMode === 'edit'"
+              >
                 <option value="income">Uang masuk</option>
                 <option value="expense">Uang keluar</option>
               </select>
