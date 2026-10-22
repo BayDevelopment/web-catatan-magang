@@ -11,7 +11,15 @@ import {
   Search,
 } from "lucide-vue-next";
 
-import { computed, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  onActivated,
+  onDeactivated,
+  onMounted,
+  onUnmounted,
+  ref,
+  watch,
+} from "vue";
 import DashboardLayout from "../layouts/DashboardLayout.vue";
 import { getTransactions } from "../services/transaction.service";
 import type { Transaction } from "../types/transaction";
@@ -19,9 +27,14 @@ import type { Transaction } from "../types/transaction";
 /* ------------------------------------------------------------------ */
 /* Konfigurasi                                                         */
 /* ------------------------------------------------------------------ */
-const PAYDAY = 22; // tanggal gajian
+const PAYDAY = 21; // tanggal gajian (periode 21 s/d 20), sama dengan Dashboard
 const PER_PAGE = 10; // transaksi per halaman
 const MS_DAY = 1000 * 60 * 60 * 24;
+
+const FIXED_DESCRIPTION_PATTERN =
+  /\b(kos|sewa|kontrakan|cicilan|tagihan|listrik|internet|bensin|air rumah|air bulanan)\b/i;
+
+const SALARY_KEYWORDS = ["gaji", "salary", "payroll"];
 
 type Mode = "gajian" | "month" | "day" | "range" | "all";
 type TypeFilter = "all" | "income" | "expense";
@@ -50,18 +63,30 @@ const toISO = (d: Date) => {
   return `${y}-${m}-${day}`;
 };
 
+const normalizeDate = (value: unknown): string => {
+  const text = String(value ?? "").trim();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+
+  // Pertahankan tanggal dari database agar hari tidak bergeser.
+  if (/^\d{4}-\d{2}-\d{2}[T ]/.test(text)) return text.slice(0, 10);
+
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? "" : toISO(parsed);
+};
+
 const formatRupiah = (value: number) =>
   new Intl.NumberFormat("id-ID", {
     style: "currency",
     currency: "IDR",
     maximumFractionDigits: 0,
-  }).format(value);
+  }).format(Number.isFinite(value) ? value : 0);
 
 const formatCompact = (value: number) =>
   new Intl.NumberFormat("id-ID", {
     notation: "compact",
     maximumFractionDigits: 1,
-  }).format(value);
+  }).format(Number.isFinite(value) ? value : 0);
 
 const formatDate = (date: string) =>
   new Intl.DateTimeFormat("id-ID", {
@@ -88,19 +113,59 @@ const formatMonthLong = (month: string) =>
     year: "numeric",
   }).format(new Date(`${month}-01T00:00:00`));
 
+const amountOf = (t: Transaction) => {
+  const amount = Number(t.amount);
+  return Number.isFinite(amount) ? Math.max(amount, 0) : 0;
+};
+
+/* ------------------------------------------------------------------ */
+/* Pengenalan gaji dan biaya tetap (sama dengan Dashboard)             */
+/* ------------------------------------------------------------------ */
+const isSalary = (t: Transaction) => {
+  if (t.type !== "income") return false;
+  if (t.is_salary === true) return true;
+  if (t.is_salary === false) return false;
+
+  const text = `${t.category ?? ""} ${t.description ?? ""}`.toLowerCase();
+  return SALARY_KEYWORDS.some((keyword) => text.includes(keyword));
+};
+
+const isFixedExpense = (t: Transaction) => {
+  if (t.type !== "expense") return false;
+  if (t.is_fixed === true) return true;
+  if (t.is_fixed === false) return false;
+
+  const category = String(t.category ?? "").trim();
+  const description = String(t.description ?? "").trim();
+
+  return (
+    /\b(biaya tetap|tagihan)\b/i.test(category) ||
+    FIXED_DESCRIPTION_PATTERN.test(category) ||
+    FIXED_DESCRIPTION_PATTERN.test(description)
+  );
+};
+
+const kindLabel = (t: Transaction) => {
+  if (isSalary(t)) return "Gaji";
+  if (isFixedExpense(t)) return "Biaya tetap";
+  return "";
+};
+
 /* ------------------------------------------------------------------ */
 /* State                                                               */
 /* ------------------------------------------------------------------ */
 const transactions = ref<Transaction[]>([]);
 const loading = ref(true);
 const errorMessage = ref("");
+const now = ref(new Date());
 
-const todayISO = toISO(new Date());
+const todayISO = computed(() => toISO(now.value));
+
 const mode = ref<Mode>("gajian");
-const selectedMonth = ref(todayISO.slice(0, 7));
-const selectedDay = ref(todayISO);
-const rangeFrom = ref(`${todayISO.slice(0, 7)}-01`);
-const rangeTo = ref(todayISO);
+const selectedMonth = ref(toISO(new Date()).slice(0, 7));
+const selectedDay = ref(toISO(new Date()));
+const rangeFrom = ref(`${toISO(new Date()).slice(0, 7)}-01`);
+const rangeTo = ref(toISO(new Date()));
 
 const typeFilter = ref<TypeFilter>("all");
 const search = ref("");
@@ -117,24 +182,31 @@ interface CycleOption {
   label: string;
 }
 
-const cycleOptions: CycleOption[] = (() => {
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  const offset = now.getDate() >= PAYDAY ? 0 : -1;
+const cycleOptions = computed<CycleOption[]>(() => {
+  const today = new Date(
+    now.value.getFullYear(),
+    now.value.getMonth(),
+    now.value.getDate(),
+  );
+  const offset = today.getDate() >= PAYDAY ? 0 : -1;
   const options: CycleOption[] = [];
 
   for (let i = 0; i < 6; i++) {
     const start = new Date(
-      now.getFullYear(),
-      now.getMonth() + offset - i,
+      today.getFullYear(),
+      today.getMonth() + offset - i,
       PAYDAY,
     );
     const next = new Date(start.getFullYear(), start.getMonth() + 1, PAYDAY);
-    const end = new Date(next);
-    end.setDate(end.getDate() - 1);
+    const end = new Date(
+      next.getFullYear(),
+      next.getMonth(),
+      next.getDate() - 1,
+    );
 
     const from = toISO(start);
     const to = toISO(end);
+
     options.push({
       value: from,
       from,
@@ -142,10 +214,19 @@ const cycleOptions: CycleOption[] = (() => {
       label: `${formatDate(from)} – ${formatDate(to)}`,
     });
   }
-  return options;
-})();
 
-const selectedCycle = ref(cycleOptions[0]!.value);
+  return options;
+});
+
+const selectedCycle = ref(cycleOptions.value[0]!.value);
+
+// Jika siklus berganti (mis. lewat tanggal 21), pilihan yang sudah tidak ada
+// dikembalikan ke siklus terbaru.
+watch(cycleOptions, (options) => {
+  if (!options.some((o) => o.value === selectedCycle.value)) {
+    selectedCycle.value = options[0]!.value;
+  }
+});
 
 /* ------------------------------------------------------------------ */
 /* Load data                                                           */
@@ -156,11 +237,17 @@ const loadTransactions = async () => {
 
   try {
     const data = await getTransactions();
-    // Pastikan tanggal selalu berformat YYYY-MM-DD agar filter akurat
-    transactions.value = data.map((t) => ({
-      ...t,
-      transaction_date: String(t.transaction_date).slice(0, 10),
-    }));
+
+    // Pastikan tanggal berformat YYYY-MM-DD dan nominal valid agar filter akurat.
+    transactions.value = data
+      .map((t) => ({
+        ...t,
+        transaction_date: normalizeDate(t.transaction_date),
+        amount: amountOf(t),
+      }))
+      .filter((t) => t.transaction_date !== "");
+
+    now.value = new Date();
   } catch (error) {
     errorMessage.value =
       error instanceof Error
@@ -178,8 +265,8 @@ const range = computed(() => {
   switch (mode.value) {
     case "gajian": {
       const c =
-        cycleOptions.find((o) => o.value === selectedCycle.value) ??
-        cycleOptions[0]!;
+        cycleOptions.value.find((o) => o.value === selectedCycle.value) ??
+        cycleOptions.value[0]!;
       return { from: c.from, to: c.to };
     }
     case "month": {
@@ -193,7 +280,7 @@ const range = computed(() => {
     }
     case "all": {
       if (transactions.value.length === 0) {
-        return { from: todayISO, to: todayISO };
+        return { from: todayISO.value, to: todayISO.value };
       }
       const dates = transactions.value.map((t) => t.transaction_date).sort();
       return { from: dates[0]!, to: dates[dates.length - 1]! };
@@ -243,13 +330,23 @@ const rangeTransactions = computed(() => {
 const totalIncome = computed(() =>
   rangeTransactions.value
     .filter((t) => t.type === "income")
-    .reduce((sum, t) => sum + Number(t.amount), 0),
+    .reduce((sum, t) => sum + amountOf(t), 0),
 );
 
 const totalExpense = computed(() =>
   rangeTransactions.value
     .filter((t) => t.type === "expense")
-    .reduce((sum, t) => sum + Number(t.amount), 0),
+    .reduce((sum, t) => sum + amountOf(t), 0),
+);
+
+const fixedExpenseTotal = computed(() =>
+  rangeTransactions.value
+    .filter(isFixedExpense)
+    .reduce((sum, t) => sum + amountOf(t), 0),
+);
+
+const variableExpenseTotal = computed(
+  () => totalExpense.value - fixedExpenseTotal.value,
 );
 
 const balance = computed(() => totalIncome.value - totalExpense.value);
@@ -270,12 +367,11 @@ const tableRows = computed(() => {
           .toLowerCase()
           .includes(q),
     )
-    .sort((a, b) => {
-      if (a.transaction_date !== b.transaction_date) {
-        return a.transaction_date < b.transaction_date ? 1 : -1;
-      }
-      return String(b.created_at).localeCompare(String(a.created_at));
-    });
+    .sort(
+      (a, b) =>
+        b.transaction_date.localeCompare(a.transaction_date) ||
+        String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")),
+    );
 });
 
 /* ------------------------------------------------------------------ */
@@ -287,7 +383,8 @@ interface Bucket {
   fullLabel: string;
   income: number;
   expense: number;
-  cumulative: number;
+  /** null untuk hari/bulan yang belum terjadi */
+  cumulative: number | null;
 }
 
 const buckets = computed<Bucket[]>(() => {
@@ -299,8 +396,8 @@ const buckets = computed<Bucket[]>(() => {
       ? t.transaction_date.slice(0, 7)
       : t.transaction_date;
     const cur = map.get(key) ?? { income: 0, expense: 0 };
-    if (t.type === "income") cur.income += Number(t.amount);
-    else cur.expense += Number(t.amount);
+    if (t.type === "income") cur.income += amountOf(t);
+    else cur.expense += amountOf(t);
     map.set(key, cur);
   }
 
@@ -322,17 +419,22 @@ const buckets = computed<Bucket[]>(() => {
     }
   }
 
+  const todayKey = groupByMonth.value
+    ? todayISO.value.slice(0, 7)
+    : todayISO.value;
+
   let cumulative = 0;
   return keys.map((key) => {
     const v = map.get(key) ?? { income: 0, expense: 0 };
     cumulative += v.income - v.expense;
+
     return {
       key,
       label: groupByMonth.value ? formatMonthShort(key) : formatShortDate(key),
       fullLabel: groupByMonth.value ? formatMonthLong(key) : formatDate(key),
       income: v.income,
       expense: v.expense,
-      cumulative,
+      cumulative: key > todayKey ? null : cumulative,
     };
   });
 });
@@ -355,7 +457,7 @@ const yScale = computed(() => {
   const values = buckets.value.flatMap((b) => [
     b.income,
     b.expense,
-    b.cumulative,
+    b.cumulative ?? 0,
   ]);
   const rawMax = Math.max(...values, 1);
   const rawMin = Math.min(...values, 0);
@@ -365,22 +467,32 @@ const yScale = computed(() => {
   const min = Math.floor(rawMin / step) * step;
 
   const ticks: number[] = [];
-  for (let v = min; v <= max + 1; v += step) ticks.push(v);
+  for (let v = min; v <= max + step * 0.001; v += step) ticks.push(v);
   return { min, max, ticks };
 });
 
 const yPos = (value: number) => {
   const { min, max } = yScale.value;
-  return PAD.top + innerH - ((value - min) / (max - min)) * innerH;
+  const span = max - min || 1;
+  return PAD.top + innerH - ((value - min) / span) * innerH;
 };
 
 const band = computed(() => innerW / Math.max(buckets.value.length, 1));
 const xCenter = (i: number) => PAD.left + band.value * (i + 0.5);
 const barWidth = computed(() => Math.max(Math.min(band.value * 0.35, 16), 2));
 
-const cumulativeLine = computed(() =>
-  buckets.value.map((b, i) => `${xCenter(i)},${yPos(b.cumulative)}`).join(" "),
-);
+// Garis kumulatif berhenti di hari ini; masa depan tidak disambungkan.
+const cumulativeLine = computed(() => {
+  const points: string[] = [];
+
+  buckets.value.forEach((b, i) => {
+    if (b.cumulative !== null) {
+      points.push(`${xCenter(i)},${yPos(b.cumulative)}`);
+    }
+  });
+
+  return points.join(" ");
+});
 
 const xLabels = computed(() => {
   const n = buckets.value.length;
@@ -464,14 +576,27 @@ watch(totalPages, (total) => {
 /* ------------------------------------------------------------------ */
 /* Export CSV                                                          */
 /* ------------------------------------------------------------------ */
+// Awali sel yang berpotensi dibaca sebagai rumus oleh Excel / Sheets.
+const safeCell = (value: string) =>
+  /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+
 const exportCsv = () => {
-  const header = ["Tanggal", "Keterangan", "Kategori", "Jenis", "Nominal"];
+  const header = [
+    "Tanggal",
+    "Keterangan",
+    "Kategori",
+    "Jenis",
+    "Tipe",
+    "Nominal",
+  ];
+
   const rows = tableRows.value.map((t) => [
     t.transaction_date,
-    String(t.description ?? ""),
-    String(t.category ?? ""),
+    safeCell(String(t.description ?? "")),
+    safeCell(String(t.category ?? "")),
     t.type === "income" ? "Masuk" : "Keluar",
-    String(t.type === "income" ? Number(t.amount) : -Number(t.amount)),
+    kindLabel(t),
+    String(t.type === "income" ? amountOf(t) : -amountOf(t)),
   ]);
 
   const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
@@ -487,32 +612,68 @@ const exportCsv = () => {
   URL.revokeObjectURL(url);
 };
 
+/* ------------------------------------------------------------------ */
+/* Jam dan lifecycle                                                   */
+/* ------------------------------------------------------------------ */
+let clockTimer: ReturnType<typeof setInterval> | undefined;
+
+const stopClock = () => {
+  if (clockTimer !== undefined) {
+    clearInterval(clockTimer);
+    clockTimer = undefined;
+  }
+};
+
+const startClock = () => {
+  stopClock();
+  now.value = new Date();
+  clockTimer = setInterval(() => {
+    now.value = new Date();
+  }, 60_000);
+};
+
+let hasBeenActivated = false;
+
 onMounted(() => {
+  startClock();
   void loadTransactions();
 });
+
+onActivated(() => {
+  // Hindari load ganda saat pertama kali dibuka; muat ulang saat KeepAlive aktif lagi.
+  if (hasBeenActivated) {
+    startClock();
+    void loadTransactions();
+  } else {
+    hasBeenActivated = true;
+  }
+});
+
+onDeactivated(stopClock);
+onUnmounted(stopClock);
 </script>
 
 <template>
-  <!-- Background blobs -->
-  <Teleport to="body">
-    <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-      <div
-        class="absolute -left-40 -top-40 h-[500px] w-[500px] transform-gpu rounded-full bg-indigo-300/30 blur-[120px]"
-      ></div>
-      <div
-        class="absolute -right-40 top-1/4 h-[450px] w-[450px] transform-gpu rounded-full bg-purple-300/25 blur-[120px]"
-      ></div>
-      <div
-        class="absolute -bottom-32 left-1/3 h-[450px] w-[450px] transform-gpu rounded-full bg-blue-200/30 blur-[120px]"
-      ></div>
-      <div
-        class="absolute bottom-10 right-10 h-80 w-80 transform-gpu rounded-full bg-sky-200/20 blur-[100px]"
-      ></div>
-    </div>
-  </Teleport>
-
   <DashboardLayout title="Laporan" subtitle="Lihat ringkasan keuangan kamu">
     <div class="relative z-10">
+      <!-- Background blobs -->
+      <Teleport to="body">
+        <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+          <div
+            class="absolute -left-40 -top-40 h-[500px] w-[500px] transform-gpu rounded-full bg-indigo-300/30 blur-[120px]"
+          ></div>
+          <div
+            class="absolute -right-40 top-1/4 h-[450px] w-[450px] transform-gpu rounded-full bg-purple-300/25 blur-[120px]"
+          ></div>
+          <div
+            class="absolute -bottom-32 left-1/3 h-[450px] w-[450px] transform-gpu rounded-full bg-blue-200/30 blur-[120px]"
+          ></div>
+          <div
+            class="absolute bottom-10 right-10 h-80 w-80 transform-gpu rounded-full bg-sky-200/20 blur-[100px]"
+          ></div>
+        </div>
+      </Teleport>
+
       <!-- Header -->
       <div
         class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"
@@ -723,6 +884,10 @@ onMounted(() => {
             <p class="mt-4 break-words text-2xl font-bold text-red-700">
               {{ formatRupiah(totalExpense) }}
             </p>
+            <p class="mt-1 text-xs text-red-600/80">
+              Tetap {{ formatRupiah(fixedExpenseTotal) }} · Jajan
+              {{ formatRupiah(variableExpenseTotal) }}
+            </p>
           </div>
 
           <div
@@ -873,9 +1038,9 @@ onMounted(() => {
                 />
               </g>
 
-              <!-- Garis selisih kumulatif -->
+              <!-- Garis selisih kumulatif (sampai hari ini) -->
               <polyline
-                v-if="buckets.length > 1"
+                v-if="cumulativeLine.includes(' ')"
                 :points="cumulativeLine"
                 fill="none"
                 stroke="#4f46e5"
@@ -884,16 +1049,17 @@ onMounted(() => {
                 stroke-linecap="round"
               />
               <template v-if="buckets.length <= 31">
-                <circle
-                  v-for="(b, i) in buckets"
-                  :key="'dot-' + b.key"
-                  :cx="xCenter(i)"
-                  :cy="yPos(b.cumulative)"
-                  r="3"
-                  fill="#fff"
-                  stroke="#4f46e5"
-                  stroke-width="2"
-                />
+                <template v-for="(b, i) in buckets" :key="'dot-' + b.key">
+                  <circle
+                    v-if="b.cumulative !== null"
+                    :cx="xCenter(i)"
+                    :cy="yPos(b.cumulative)"
+                    r="3"
+                    fill="#fff"
+                    stroke="#4f46e5"
+                    stroke-width="2"
+                  />
+                </template>
               </template>
 
               <!-- Sumbu X -->
@@ -948,7 +1114,11 @@ onMounted(() => {
                 <div class="flex justify-between gap-3">
                   <dt class="text-slate-500">Selisih kumulatif</dt>
                   <dd class="font-semibold text-indigo-600">
-                    {{ formatRupiah(hovered.cumulative) }}
+                    {{
+                      hovered.cumulative === null
+                        ? "–"
+                        : formatRupiah(hovered.cumulative)
+                    }}
                   </dd>
                 </div>
               </dl>
@@ -1087,6 +1257,17 @@ onMounted(() => {
                 </td>
                 <td class="px-6 py-4 font-medium text-slate-900">
                   {{ transaction.description }}
+                  <span
+                    v-if="kindLabel(transaction)"
+                    class="ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold"
+                    :class="
+                      transaction.type === 'income'
+                        ? 'bg-emerald-50 text-emerald-600'
+                        : 'bg-amber-50 text-amber-600'
+                    "
+                  >
+                    {{ kindLabel(transaction) }}
+                  </span>
                 </td>
                 <td class="px-6 py-4 text-sm text-slate-600">
                   {{ transaction.category }}
@@ -1112,7 +1293,7 @@ onMounted(() => {
                   "
                 >
                   {{ transaction.type === "income" ? "+" : "-" }}
-                  {{ formatRupiah(Number(transaction.amount)) }}
+                  {{ formatRupiah(amountOf(transaction)) }}
                 </td>
               </tr>
 

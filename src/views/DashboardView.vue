@@ -9,7 +9,15 @@ import {
   TrendingUp,
   RefreshCw,
 } from "lucide-vue-next";
-import { computed, onActivated, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  onActivated,
+  onDeactivated,
+  onMounted,
+  onUnmounted,
+  ref,
+  watch,
+} from "vue";
 
 import DashboardLayout from "../layouts/DashboardLayout.vue";
 import { getTransactions } from "../services/transaction.service";
@@ -29,16 +37,11 @@ const FIXED_DESCRIPTION_PATTERN =
 
 const SALARY_KEYWORDS = ["gaji", "salary", "payroll"];
 
-type TransactionWithFlags = Transaction & {
-  is_salary?: boolean | null;
-  is_fixed?: boolean | null;
-};
-
 /* ------------------------------------------------------------------ */
 /* State                                                               */
 /* ------------------------------------------------------------------ */
 
-const transactions = ref<TransactionWithFlags[]>([]);
+const transactions = ref<Transaction[]>([]);
 const loading = ref(true);
 const errorMessage = ref("");
 const currentPage = ref(1);
@@ -113,21 +116,27 @@ const addDays = (date: Date, days: number) =>
 const differenceInDays = (from: Date, to: Date) =>
   Math.round((startOfDay(to).getTime() - startOfDay(from).getTime()) / MS_DAY);
 
-const amountOf = (transaction: TransactionWithFlags) => {
+const amountOf = (transaction: Transaction) => {
   const amount = Number(transaction.amount);
 
   return Number.isFinite(amount) ? Math.max(amount, 0) : 0;
 };
 
+const signedAmount = (transaction: Transaction) =>
+  transaction.type === "income"
+    ? amountOf(transaction)
+    : -amountOf(transaction);
+
 /* ------------------------------------------------------------------ */
 /* Pengenalan transaksi gaji dan biaya tetap                            */
 /* ------------------------------------------------------------------ */
 
-const isSalary = (transaction: TransactionWithFlags) => {
+const isSalary = (transaction: Transaction) => {
   if (transaction.type !== "income") {
     return false;
   }
 
+  // Flag eksplisit dari database menjadi prioritas utama.
   if (transaction.is_salary === true) return true;
   if (transaction.is_salary === false) return false;
 
@@ -138,7 +147,7 @@ const isSalary = (transaction: TransactionWithFlags) => {
   return SALARY_KEYWORDS.some((keyword) => text.includes(keyword));
 };
 
-const isFixedExpense = (transaction: TransactionWithFlags) => {
+const isFixedExpense = (transaction: Transaction) => {
   if (transaction.type !== "expense") {
     return false;
   }
@@ -195,11 +204,7 @@ const loadTransactions = async () => {
 
 const balance = computed(() =>
   transactions.value.reduce(
-    (total, transaction) =>
-      total +
-      (transaction.type === "income"
-        ? amountOf(transaction)
-        : -amountOf(transaction)),
+    (total, transaction) => total + signedAmount(transaction),
     0,
   ),
 );
@@ -235,7 +240,7 @@ const period = computed(() => {
     .sort((a, b) => a.transaction_date.localeCompare(b.transaction_date));
 
   // Gunakan tanggal gaji terakhir yang tercatat dalam periode aktif.
-  const salaryAtPeriodStart =
+  const lastSalary =
     salaryTransactions.length > 0
       ? salaryTransactions[salaryTransactions.length - 1]
       : undefined;
@@ -253,7 +258,7 @@ const period = computed(() => {
     dayIndex,
     daysLeft,
     today: todayISO,
-    salaryDate: salaryAtPeriodStart?.transaction_date ?? null,
+    salaryDate: lastSalary?.transaction_date ?? null,
   };
 });
 
@@ -277,14 +282,7 @@ const periodTransactions = computed(() =>
 const openingBalance = computed(() =>
   transactions.value
     .filter((transaction) => transaction.transaction_date < period.value.start)
-    .reduce(
-      (total, transaction) =>
-        total +
-        (transaction.type === "income"
-          ? amountOf(transaction)
-          : -amountOf(transaction)),
-      0,
-    ),
+    .reduce((total, transaction) => total + signedAmount(transaction), 0),
 );
 
 const upcomingCount = computed(
@@ -342,6 +340,13 @@ const variableSpentBeforeToday = computed(() =>
     .reduce((total, transaction) => total + amountOf(transaction), 0),
 );
 
+// Pengeluaran variabel yang sudah dicatat untuk hari setelah hari ini.
+const variablePlannedAfterToday = computed(() =>
+  variableExpenses.value
+    .filter((transaction) => transaction.transaction_date > period.value.today)
+    .reduce((total, transaction) => total + amountOf(transaction), 0),
+);
+
 // Pengeluaran variabel hari ini.
 const spentToday = computed(() =>
   variableExpenses.value
@@ -351,12 +356,13 @@ const spentToday = computed(() =>
     .reduce((total, transaction) => total + amountOf(transaction), 0),
 );
 
-// Dana jajan setelah biaya tetap dan pengeluaran variabel sebelumnya.
+// Dana jajan setelah biaya tetap, jajan sebelumnya, dan jajan yang sudah dijadwalkan.
 const poolForDaily = computed(
   () =>
     fundsThisPeriod.value -
     fixedExpenseTotal.value -
-    variableSpentBeforeToday.value,
+    variableSpentBeforeToday.value -
+    variablePlannedAfterToday.value,
 );
 
 // Sisa dana jajan setelah pengeluaran hari ini.
@@ -736,12 +742,34 @@ watch(totalPages, (total) => {
 });
 
 /* ------------------------------------------------------------------ */
+/* Jam: perbarui "hari ini" otomatis saat tab dibiarkan terbuka         */
+/* ------------------------------------------------------------------ */
+
+let clockTimer: ReturnType<typeof setInterval> | undefined;
+
+const stopClock = () => {
+  if (clockTimer !== undefined) {
+    clearInterval(clockTimer);
+    clockTimer = undefined;
+  }
+};
+
+const startClock = () => {
+  stopClock();
+  now.value = new Date();
+  clockTimer = setInterval(() => {
+    now.value = new Date();
+  }, 60_000);
+};
+
+/* ------------------------------------------------------------------ */
 /* Lifecycle                                                            */
 /* ------------------------------------------------------------------ */
 
 let hasBeenActivated = false;
 
 onMounted(() => {
+  startClock();
   void loadTransactions();
 });
 
@@ -749,34 +777,38 @@ onActivated(() => {
   // Hindari load ganda saat pertama kali halaman dibuka.
   // Muat ulang ketika halaman KeepAlive diaktifkan kembali.
   if (hasBeenActivated) {
+    startClock();
     void loadTransactions();
   } else {
     hasBeenActivated = true;
   }
 });
+
+onDeactivated(stopClock);
+onUnmounted(stopClock);
 </script>
 
 <template>
-  <!-- Background blobs -->
-  <Teleport to="body">
-    <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-      <div
-        class="absolute -top-40 -left-40 h-[500px] w-[500px] transform-gpu rounded-full bg-indigo-300/30 blur-[120px]"
-      ></div>
-      <div
-        class="absolute -right-40 top-1/4 h-[450px] w-[450px] transform-gpu rounded-full bg-purple-300/25 blur-[120px]"
-      ></div>
-      <div
-        class="absolute -bottom-32 left-1/3 h-[450px] w-[450px] transform-gpu rounded-full bg-blue-200/30 blur-[120px]"
-      ></div>
-      <div
-        class="absolute bottom-10 right-10 h-80 w-80 transform-gpu rounded-full bg-sky-200/20 blur-[100px]"
-      ></div>
-    </div>
-  </Teleport>
-
   <DashboardLayout title="Dashboard" subtitle="Ringkasan keuangan kamu">
     <div class="relative min-h-full">
+      <!-- Background blobs -->
+      <Teleport to="body">
+        <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+          <div
+            class="absolute -top-40 -left-40 h-[500px] w-[500px] transform-gpu rounded-full bg-indigo-300/30 blur-[120px]"
+          ></div>
+          <div
+            class="absolute -right-40 top-1/4 h-[450px] w-[450px] transform-gpu rounded-full bg-purple-300/25 blur-[120px]"
+          ></div>
+          <div
+            class="absolute -bottom-32 left-1/3 h-[450px] w-[450px] transform-gpu rounded-full bg-blue-200/30 blur-[120px]"
+          ></div>
+          <div
+            class="absolute bottom-10 right-10 h-80 w-80 transform-gpu rounded-full bg-sky-200/20 blur-[100px]"
+          ></div>
+        </div>
+      </Teleport>
+
       <!-- Header -->
       <div
         class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"
@@ -914,6 +946,14 @@ onActivated(() => {
               {{ formatRupiah(dailyBudgetTomorrow) }}/hari
             </span>
           </p>
+
+          <p
+            v-if="variablePlannedAfterToday > 0"
+            class="mt-2 text-xs text-indigo-100"
+          >
+            Sudah termasuk pengeluaran bertanggal setelah hari ini sebesar
+            {{ formatRupiah(variablePlannedAfterToday) }}.
+          </p>
         </div>
 
         <p
@@ -927,7 +967,7 @@ onActivated(() => {
           v-if="poolForDaily < 0"
           class="mt-2 text-xs font-semibold text-amber-200"
         >
-          Dana belum cukup menutup biaya tetap dan pengeluaran sebelumnya.
+          Dana belum cukup menutup biaya tetap dan pengeluaran lainnya.
         </p>
 
         <p
@@ -1426,15 +1466,30 @@ onActivated(() => {
                 <p class="truncate text-sm font-semibold text-slate-900">
                   {{ transaction.description }}
                 </p>
-                <p class="text-xs text-slate-400">
-                  {{ transaction.category }} ·
-                  {{ formatDate(transaction.transaction_date) }}
+                <p
+                  class="flex flex-wrap items-center gap-x-1.5 text-xs text-slate-400"
+                >
+                  <span>{{ transaction.category }}</span>
+                  <span>·</span>
+                  <span>{{ formatDate(transaction.transaction_date) }}</span>
+                  <span
+                    v-if="isSalary(transaction)"
+                    class="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600"
+                  >
+                    Gaji
+                  </span>
+                  <span
+                    v-else-if="isFixedExpense(transaction)"
+                    class="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600"
+                  >
+                    Biaya tetap
+                  </span>
                 </p>
               </div>
             </div>
 
             <p
-              class="pl-13 text-sm font-bold sm:pl-0"
+              class="pl-[52px] text-sm font-bold sm:pl-0"
               :class="
                 transaction.type === 'income'
                   ? 'text-emerald-600'
