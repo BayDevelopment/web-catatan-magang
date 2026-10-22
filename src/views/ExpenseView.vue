@@ -8,7 +8,7 @@ import {
   RefreshCw,
 } from "lucide-vue-next";
 
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, watch, onMounted, onActivated } from "vue";
 import DashboardLayout from "../layouts/DashboardLayout.vue";
 import {
   getTransactions,
@@ -17,18 +17,15 @@ import {
 } from "../services/transaction.service";
 import type { Transaction } from "../types/transaction";
 
-const transactions = ref<Transaction[]>([]);
-const loading = ref(true);
-const errorMessage = ref("");
+/* ------------------------------------------------------------------ */
+/* Konfigurasi (sama dengan Dashboard)                                  */
+/* ------------------------------------------------------------------ */
+const PAYDAY = 21;
 
-const showForm = ref(false);
-const search = ref("");
+const FIXED_CATEGORIES = ["Tagihan", "Biaya Tetap"];
 
-const description = ref("");
-const category = ref("Makanan");
-const amount = ref<number | null>(null);
-const date = ref(new Date().toLocaleDateString("en-CA"));
-const submitting = ref(false);
+const FIXED_DESCRIPTION_PATTERN =
+  /\b(kos|sewa|kontrakan|cicilan|tagihan|listrik|internet|bensin|air rumah|air bulanan)\b/i;
 
 const categories = [
   "Makanan",
@@ -42,22 +39,117 @@ const categories = [
   "Lainnya",
 ];
 
-const formatRupiah = (value: number) => {
-  return new Intl.NumberFormat("id-ID", {
+/* ------------------------------------------------------------------ */
+/* Helper                                                               */
+/* ------------------------------------------------------------------ */
+const toISO = (d: Date) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+const normalizeDate = (value: unknown): string => {
+  const text = String(value ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  if (/^\d{4}-\d{2}-\d{2}[T ]/.test(text)) return text.slice(0, 10);
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? "" : toISO(parsed);
+};
+
+const amountOf = (t: Transaction) => {
+  const n = Number(t.amount);
+  return Number.isFinite(n) ? Math.max(n, 0) : 0;
+};
+
+const formatRupiah = (value: number) =>
+  new Intl.NumberFormat("id-ID", {
     style: "currency",
     currency: "IDR",
     maximumFractionDigits: 0,
   }).format(Number.isFinite(value) ? value : 0);
-};
 
-const formatDate = (dateString: string) => {
-  return new Intl.DateTimeFormat("id-ID", {
+const formatDate = (dateString: string) =>
+  new Intl.DateTimeFormat("id-ID", {
     day: "2-digit",
     month: "short",
     year: "numeric",
   }).format(new Date(`${dateString}T00:00:00`));
+
+/** Deteksi biaya tetap dari kategori dan keterangan (untuk form). */
+const detectFixed = (cat: string, desc: string) =>
+  FIXED_CATEGORIES.includes(cat) ||
+  FIXED_DESCRIPTION_PATTERN.test(cat) ||
+  FIXED_DESCRIPTION_PATTERN.test(desc);
+
+/** Aturan sama dengan Dashboard: flag database dulu, baru tebakan. */
+const isFixedExpense = (t: Transaction) => {
+  if (t.type !== "expense") return false;
+  if (t.is_fixed === true) return true;
+  if (t.is_fixed === false) return false;
+
+  const category = String(t.category ?? "").trim();
+  const description = String(t.description ?? "").trim();
+
+  return (
+    /\b(biaya tetap|tagihan)\b/i.test(category) ||
+    FIXED_DESCRIPTION_PATTERN.test(category) ||
+    FIXED_DESCRIPTION_PATTERN.test(description)
+  );
 };
 
+/* ------------------------------------------------------------------ */
+/* State                                                                */
+/* ------------------------------------------------------------------ */
+const transactions = ref<Transaction[]>([]);
+const loading = ref(true);
+const errorMessage = ref("");
+const now = ref(new Date());
+
+const showForm = ref(false);
+const search = ref("");
+
+const description = ref("");
+const category = ref("Makanan");
+const amount = ref<number | null>(null);
+const date = ref(toISO(new Date()));
+const isFixed = ref(false);
+const fixedTouched = ref(false);
+const formError = ref("");
+const submitting = ref(false);
+
+// Centang "biaya tetap" otomatis mengikuti kategori/keterangan,
+// kecuali sudah diubah manual oleh pengguna.
+watch([description, category], () => {
+  if (!fixedTouched.value) {
+    isFixed.value = detectFixed(category.value, description.value);
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* Periode gajian aktif                                                 */
+/* ------------------------------------------------------------------ */
+const period = computed(() => {
+  const today = new Date(
+    now.value.getFullYear(),
+    now.value.getMonth(),
+    now.value.getDate(),
+  );
+
+  const start =
+    today.getDate() >= PAYDAY
+      ? new Date(today.getFullYear(), today.getMonth(), PAYDAY)
+      : new Date(today.getFullYear(), today.getMonth() - 1, PAYDAY);
+
+  const next = new Date(start.getFullYear(), start.getMonth() + 1, PAYDAY);
+  const end = new Date(next.getFullYear(), next.getMonth(), next.getDate() - 1);
+
+  return { start: toISO(start), end: toISO(end) };
+});
+
+/* ------------------------------------------------------------------ */
+/* Load data                                                            */
+/* ------------------------------------------------------------------ */
 const loadExpenses = async () => {
   loading.value = true;
   errorMessage.value = "";
@@ -65,9 +157,16 @@ const loadExpenses = async () => {
   try {
     const data = await getTransactions();
 
-    transactions.value = data.filter(
-      (transaction) => transaction.type === "expense",
-    );
+    transactions.value = data
+      .filter((t) => t.type === "expense")
+      .map((t) => ({
+        ...t,
+        transaction_date: normalizeDate(t.transaction_date),
+        amount: amountOf(t),
+      }))
+      .filter((t) => t.transaction_date !== "");
+
+    now.value = new Date();
   } catch (error) {
     errorMessage.value =
       error instanceof Error
@@ -78,32 +177,87 @@ const loadExpenses = async () => {
   }
 };
 
+/* ------------------------------------------------------------------ */
+/* Data tampilan                                                        */
+/* ------------------------------------------------------------------ */
 const filteredExpenses = computed(() => {
   const keyword = search.value.trim().toLowerCase();
 
-  return transactions.value.filter((item) => {
-    const descriptionText = String(item.description ?? "").toLowerCase();
-    const categoryText = String(item.category ?? "").toLowerCase();
-
-    return descriptionText.includes(keyword) || categoryText.includes(keyword);
-  });
+  return transactions.value
+    .filter((item) => {
+      const descriptionText = String(item.description ?? "").toLowerCase();
+      const categoryText = String(item.category ?? "").toLowerCase();
+      return (
+        descriptionText.includes(keyword) || categoryText.includes(keyword)
+      );
+    })
+    .sort(
+      (a, b) =>
+        b.transaction_date.localeCompare(a.transaction_date) ||
+        String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")),
+    );
 });
 
-const totalExpense = computed(() => {
-  return transactions.value.reduce((total, item) => {
-    const nominal = Number(item.amount);
-    return total + (Number.isFinite(nominal) ? nominal : 0);
-  }, 0);
+const totalExpense = computed(() =>
+  transactions.value.reduce((total, item) => total + amountOf(item), 0),
+);
+
+const periodExpenses = computed(() =>
+  transactions.value.filter(
+    (t) =>
+      t.transaction_date >= period.value.start &&
+      t.transaction_date <= period.value.end,
+  ),
+);
+
+const periodTotal = computed(() =>
+  periodExpenses.value.reduce((total, t) => total + amountOf(t), 0),
+);
+
+const periodFixed = computed(() =>
+  periodExpenses.value
+    .filter(isFixedExpense)
+    .reduce((total, t) => total + amountOf(t), 0),
+);
+
+const periodVariable = computed(() => periodTotal.value - periodFixed.value);
+
+const periodLabel = computed(
+  () => `${formatDate(period.value.start)} – ${formatDate(period.value.end)}`,
+);
+
+const dateNote = computed(() => {
+  if (!date.value) return "";
+  if (date.value > period.value.end) {
+    return "Tanggal ini masuk periode gajian berikutnya, jadi belum dihitung di periode sekarang.";
+  }
+  if (date.value < period.value.start) {
+    return "Tanggal ini masuk periode gajian sebelumnya, jadi tidak memengaruhi jatah harian sekarang.";
+  }
+  return "";
 });
 
+/* ------------------------------------------------------------------ */
+/* Form                                                                 */
+/* ------------------------------------------------------------------ */
 const resetForm = () => {
   description.value = "";
   category.value = "Makanan";
   amount.value = null;
-  date.value = new Date().toLocaleDateString("en-CA");
+  date.value = toISO(new Date());
+  isFixed.value = false;
+  fixedTouched.value = false;
+  formError.value = "";
+};
+
+const openForm = () => {
+  resetForm();
+  showForm.value = true;
 };
 
 const saveExpense = async () => {
+  if (submitting.value) return;
+
   const cleanDescription = description.value.trim();
   const nominal = Number(amount.value);
 
@@ -113,36 +267,35 @@ const saveExpense = async () => {
     !Number.isFinite(nominal) ||
     nominal <= 0
   ) {
-    alert("Mohon isi keterangan dan nominal dengan benar.");
+    formError.value = "Mohon isi keterangan dan nominal dengan benar.";
     return;
   }
 
   if (!date.value) {
-    alert("Mohon pilih tanggal pengeluaran.");
+    formError.value = "Mohon pilih tanggal pengeluaran.";
     return;
   }
 
   submitting.value = true;
+  formError.value = "";
   errorMessage.value = "";
 
   try {
     await createTransaction("expense", {
       description: cleanDescription,
       category: category.value,
-      amount: nominal,
+      amount: Math.round(nominal),
       transaction_date: date.value,
+      is_fixed: isFixed.value,
     });
 
-    resetForm();
     showForm.value = false;
+    resetForm();
 
     await loadExpenses();
   } catch (error) {
-    const message =
+    formError.value =
       error instanceof Error ? error.message : "Gagal menyimpan pengeluaran.";
-
-    errorMessage.value = message;
-    alert(message);
   } finally {
     submitting.value = false;
   }
@@ -157,43 +310,51 @@ const handleDelete = async (id: number) => {
     await deleteTransaction(id);
     await loadExpenses();
   } catch (error) {
-    const message =
+    errorMessage.value =
       error instanceof Error ? error.message : "Gagal menghapus pengeluaran.";
-
-    errorMessage.value = message;
-    alert(message);
   }
 };
+
+/* ------------------------------------------------------------------ */
+/* Lifecycle                                                            */
+/* ------------------------------------------------------------------ */
+let hasBeenActivated = false;
 
 onMounted(() => {
   void loadExpenses();
 });
+
+onActivated(() => {
+  // Muat ulang saat halaman KeepAlive diaktifkan kembali.
+  if (hasBeenActivated) {
+    void loadExpenses();
+  } else {
+    hasBeenActivated = true;
+  }
+});
 </script>
 
 <template>
-  <!-- Background blobs -->
-  <Teleport to="body">
-    <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-      <div
-        class="absolute -top-40 -left-40 h-[500px] w-[500px] transform-gpu rounded-full bg-red-300/30 blur-[120px]"
-      ></div>
-
-      <div
-        class="absolute -right-40 top-1/4 h-[450px] w-[450px] transform-gpu rounded-full bg-indigo-300/25 blur-[120px]"
-      ></div>
-
-      <div
-        class="absolute -bottom-32 left-1/3 h-[450px] w-[450px] transform-gpu rounded-full bg-violet-200/30 blur-[120px]"
-      ></div>
-
-      <div
-        class="absolute bottom-10 right-10 h-80 w-80 transform-gpu rounded-full bg-rose-200/20 blur-[100px]"
-      ></div>
-    </div>
-  </Teleport>
-
   <DashboardLayout title="Uang Keluar" subtitle="Kelola semua pengeluaran kamu">
     <div class="relative">
+      <!-- Background blobs -->
+      <Teleport to="body">
+        <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+          <div
+            class="absolute -top-40 -left-40 h-[500px] w-[500px] transform-gpu rounded-full bg-red-300/30 blur-[120px]"
+          ></div>
+          <div
+            class="absolute -right-40 top-1/4 h-[450px] w-[450px] transform-gpu rounded-full bg-indigo-300/25 blur-[120px]"
+          ></div>
+          <div
+            class="absolute -bottom-32 left-1/3 h-[450px] w-[450px] transform-gpu rounded-full bg-violet-200/30 blur-[120px]"
+          ></div>
+          <div
+            class="absolute bottom-10 right-10 h-80 w-80 transform-gpu rounded-full bg-rose-200/20 blur-[100px]"
+          ></div>
+        </div>
+      </Teleport>
+
       <div class="relative z-10">
         <!-- Actions -->
         <div class="mb-6 flex justify-end">
@@ -211,7 +372,7 @@ onMounted(() => {
             <button
               type="button"
               class="flex items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:bg-red-700 hover:shadow-md"
-              @click="showForm = true"
+              @click="openForm"
             >
               <Plus :size="18" />
               Tambah Pengeluaran
@@ -239,12 +400,32 @@ onMounted(() => {
             </div>
 
             <div>
-              <p class="text-sm text-red-700">Total pengeluaran</p>
+              <p class="text-sm text-red-700">Pengeluaran periode ini</p>
 
               <p class="mt-1 text-2xl font-bold text-red-700 sm:text-3xl">
-                {{ formatRupiah(totalExpense) }}
+                {{ formatRupiah(periodTotal) }}
               </p>
             </div>
+          </div>
+
+          <div
+            class="mt-4 grid gap-2 border-t border-red-100 pt-4 text-xs text-red-700/80 sm:grid-cols-3"
+          >
+            <p>Periode {{ periodLabel }}</p>
+            <p>
+              Biaya tetap
+              <span class="font-semibold">{{ formatRupiah(periodFixed) }}</span>
+              · Jajan
+              <span class="font-semibold">{{
+                formatRupiah(periodVariable)
+              }}</span>
+            </p>
+            <p class="sm:text-right">
+              Semua waktu
+              <span class="font-semibold">{{
+                formatRupiah(totalExpense)
+              }}</span>
+            </p>
           </div>
         </div>
 
@@ -278,25 +459,21 @@ onMounted(() => {
                   >
                     Keterangan
                   </th>
-
                   <th
                     class="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
                   >
                     Kategori
                   </th>
-
                   <th
                     class="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
                   >
                     Tanggal
                   </th>
-
                   <th
                     class="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wide text-slate-500"
                   >
                     Nominal
                   </th>
-
                   <th
                     class="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wide text-slate-500"
                   >
@@ -314,19 +491,15 @@ onMounted(() => {
                   <td class="px-6 py-4">
                     <div class="h-4 w-40 rounded bg-slate-200"></div>
                   </td>
-
                   <td class="px-6 py-4">
                     <div class="h-4 w-28 rounded bg-slate-200"></div>
                   </td>
-
                   <td class="px-6 py-4">
                     <div class="h-4 w-24 rounded bg-slate-200"></div>
                   </td>
-
                   <td class="px-6 py-4 text-right">
                     <div class="ml-auto h-4 w-24 rounded bg-slate-200"></div>
                   </td>
-
                   <td class="px-6 py-4 text-right">
                     <div class="ml-auto h-8 w-8 rounded-lg bg-slate-200"></div>
                   </td>
@@ -351,6 +524,13 @@ onMounted(() => {
                       <span class="font-medium text-slate-900">
                         {{ item.description }}
                       </span>
+
+                      <span
+                        v-if="isFixedExpense(item)"
+                        class="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600"
+                      >
+                        Biaya tetap
+                      </span>
                     </div>
                   </td>
 
@@ -363,7 +543,7 @@ onMounted(() => {
                   </td>
 
                   <td class="px-6 py-4 text-right font-semibold text-red-600">
-                    -{{ formatRupiah(Number(item.amount)) }}
+                    -{{ formatRupiah(amountOf(item)) }}
                   </td>
 
                   <td class="px-6 py-4">
@@ -411,6 +591,7 @@ onMounted(() => {
       v-if="showForm"
       class="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-slate-950/40 px-4 py-6 backdrop-blur-sm"
       @click.self="showForm = false"
+      @keydown.esc="showForm = false"
     >
       <div
         class="relative w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl sm:p-7"
@@ -419,7 +600,6 @@ onMounted(() => {
         <div
           class="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full bg-red-100/60 blur-3xl"
         ></div>
-
         <div
           class="pointer-events-none absolute -bottom-16 -left-16 h-40 w-40 rounded-full bg-indigo-100/50 blur-3xl"
         ></div>
@@ -453,13 +633,25 @@ onMounted(() => {
 
           <!-- Form -->
           <form class="space-y-4" @submit.prevent="saveExpense">
+            <p
+              v-if="formError"
+              class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+              role="alert"
+            >
+              {{ formError }}
+            </p>
+
             <!-- Description -->
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">
+              <label
+                for="expense-description"
+                class="mb-2 block text-sm font-medium text-slate-700"
+              >
                 Keterangan
               </label>
 
               <input
+                id="expense-description"
                 v-model="description"
                 placeholder="Contoh: Bayar kos bulanan"
                 class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
@@ -469,11 +661,15 @@ onMounted(() => {
 
             <!-- Category -->
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">
+              <label
+                for="expense-category"
+                class="mb-2 block text-sm font-medium text-slate-700"
+              >
                 Kategori
               </label>
 
               <select
+                id="expense-category"
                 v-model="category"
                 class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
                 required
@@ -482,22 +678,40 @@ onMounted(() => {
                   {{ item }}
                 </option>
               </select>
-
-              <p
-                v-if="category === 'Biaya Tetap'"
-                class="mt-2 text-xs text-slate-500"
-              >
-                Untuk pengeluaran rutin seperti kos, sewa, atau cicilan.
-              </p>
             </div>
+
+            <!-- Biaya tetap -->
+            <label
+              class="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3"
+            >
+              <input
+                v-model="isFixed"
+                type="checkbox"
+                class="mt-0.5 h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-200"
+                @change="fixedTouched = true"
+              />
+              <span>
+                <span class="block text-sm font-medium text-slate-700">
+                  Biaya tetap
+                </span>
+                <span class="block text-xs text-slate-500">
+                  Rutin seperti kos, sewa, cicilan, listrik, internet, bensin.
+                  Dipotong dulu dari dana sebelum dibagi menjadi jatah harian.
+                </span>
+              </span>
+            </label>
 
             <!-- Amount -->
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">
+              <label
+                for="expense-amount"
+                class="mb-2 block text-sm font-medium text-slate-700"
+              >
                 Nominal
               </label>
 
               <input
+                id="expense-amount"
                 v-model.number="amount"
                 type="number"
                 min="1"
@@ -510,16 +724,24 @@ onMounted(() => {
 
             <!-- Date -->
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">
+              <label
+                for="expense-date"
+                class="mb-2 block text-sm font-medium text-slate-700"
+              >
                 Tanggal
               </label>
 
               <input
+                id="expense-date"
                 v-model="date"
                 type="date"
                 class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100"
                 required
               />
+
+              <p v-if="dateNote" class="mt-2 text-xs text-amber-600">
+                {{ dateNote }}
+              </p>
             </div>
 
             <!-- Submit -->
