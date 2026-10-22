@@ -1,82 +1,71 @@
-import { supabase } from '../lib/supabase'
-import type { Session, User } from '@supabase/supabase-js'
+import { supabase } from "../lib/supabase";
+import type { Session, User } from "@supabase/supabase-js";
 
 export interface RegisterData {
-  email: string
-  password: string
-  fullName: string
+  email: string;
+  password: string;
+  fullName: string;
 }
 
-export const login = async (
-  email: string,
-  password: string,
-) => {
-  const { data, error } =
-    await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
+export const login = async (email: string, password: string) => {
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: email.trim().toLowerCase(),
+    password,
+  });
 
   if (error) {
-    throw new Error(error.message)
+    throw new Error(error.message);
   }
 
-  return data
-}
+  return data;
+};
 
-export const register = async ({
-  email,
-  password,
-  fullName,
-}: RegisterData) => {
-  const { data, error } =
-    await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName,
-        },
-      },
-    })
+export const register = async ({ email, password, fullName }: RegisterData) => {
+  const { data, error } = await supabase.auth.signUp({
+    email: email.trim().toLowerCase(),
+    password,
+    options: { data: { full_name: fullName.trim() } },
+  });
 
   if (error) {
-    throw new Error(error.message)
+    throw new Error(error.message);
   }
 
-  return data
-}
+  return data;
+};
 
 export const logout = async () => {
-  const { error } = await supabase.auth.signOut()
+  const { error } = await supabase.auth.signOut();
 
   if (error) {
-    throw new Error(error.message)
+    throw new Error(error.message);
   }
-}
+};
 
 export const getSession = async (): Promise<Session | null> => {
   const {
     data: { session },
     error,
-  } = await supabase.auth.getSession()
+  } = await supabase.auth.getSession();
 
   if (error) {
-    throw new Error(error.message)
+    throw new Error(error.message);
   }
 
-  return session
-}
+  return session;
+};
 
 export const getCurrentUser = async (): Promise<User | null> => {
   const {
     data: { user },
     error,
-  } = await supabase.auth.getUser()
+  } = await supabase.auth.getUser();
 
   if (error) {
-    throw new Error(error.message)
+    // Belum login bukan error, cukup kembalikan null
+    if (error.name === "AuthSessionMissingError") return null;
+    throw new Error(error.message);
   }
 
-  return user
-}
+  return user;
+};

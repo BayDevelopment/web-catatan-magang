@@ -1,6 +1,14 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 
+declare module "vue-router" {
+  interface RouteMeta {
+    requiresAuth?: boolean;
+    guestOnly?: boolean;
+    requiresAdmin?: boolean;
+  }
+}
+
 const router = createRouter({
   history: createWebHistory(),
 
@@ -98,6 +106,16 @@ const router = createRouter({
         requiresAdmin: true,
       },
     },
+
+    // =========================
+    // FALLBACK (URL tidak dikenal)
+    // Belum login akan diarahkan ke login oleh route guard.
+    // =========================
+
+    {
+      path: "/:pathMatch(.*)*",
+      redirect: "/dashboard",
+    },
   ],
 });
 
@@ -140,6 +158,7 @@ router.beforeEach(async (to) => {
 
   // =========================
   // WAJIB ADMIN
+  // (hanya melindungi tampilan; keamanan sebenarnya ada di RLS Supabase)
   // =========================
 
   if (to.meta.requiresAdmin && !authStore.isAdmin) {
